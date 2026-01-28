@@ -1,0 +1,12 @@
+RewriteEngine On
+RewriteBase /
+
+# 1. Menghilangkan index.php saat mengakses root domain
+# Jika pengguna meminta http://domain.com/index.php, mereka akan dialihkan ke http://domain.com/
+RewriteRule ^index\.php$ / [R=301,L]
+
+# 2. Menghilangkan ekstensi .php dari semua file
+# Ini memungkinkan akses ke /dashboard daripada /dashboard.php
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(.*)$ $1.php [L]
