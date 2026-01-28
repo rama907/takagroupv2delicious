@@ -57,7 +57,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     $transaction_type = 'deposit';
                 } elseif ($action === 'withdraw') {
                     if ($current_quantity < $quantity) {
-                        throw new Exception("Stok produk " . str_replace('_', ' ', $product_name) . " tidak mencukupi! Stok: {$current_quantity}.");
+                        throw new Exception("Stok produk " . ucwords(str_replace('_', ' ', $product_name)) . " tidak mencukupi! Stok: {$current_quantity}.");
                     }
                     $new_quantity -= $quantity;
                     $transaction_type = 'withdraw';
@@ -86,18 +86,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $stmt->close();
                 
                 $successful_logs++;
-                $processed_items_list[] = htmlspecialchars(str_replace('_', ' ', $product_name)) . " (x{$quantity})";
+                $processed_items_list[] = htmlspecialchars(ucwords(str_replace('_', ' ', $product_name))) . " (x{$quantity})";
             }
             
             $conn->commit();
             $success = "Transaksi " . ucfirst($action) . " berhasil untuk {$successful_logs} item: " . implode(', ', $processed_items_list);
             
-            // >>>>>> MODIFIKASI: Kirim notifikasi Discord untuk stok kulkas <<<<<<
+            // Kirim notifikasi Discord untuk stok kulkas
             sendDiscordNotification([
                 'employee_name' => $user['name'],
                 'product_list' => $items_to_process, // Kirim array product_name => quantity
             ], "refrigerator_{$action}");
-            // >>>>>> AKHIR MODIFIKASI <<<<<<
             
             // Redirect untuk menampilkan pesan sukses dan memuat ulang data
             header("Location: refrigerator-stock.php?msg=" . urlencode($success) . "&type=success&filter_date=" . urlencode($selected_date));
@@ -126,8 +125,20 @@ if (isset($_GET['msg']) && isset($_GET['type'])) {
 
 // --- LOGIKA PENGAMBILAN DATA UNTUK FILTER ---
 
-// 1. Get current stock levels (Berisi Paket Western, Paket Nusantara, Paket Kids Meal)
-$stock_levels = $conn->query("SELECT * FROM refrigerator_stock ORDER BY product_name ASC")->fetch_all(MYSQLI_ASSOC);
+// 1. Get current stock levels
+// UPDATE: Menggunakan CASE untuk mengurutkan sesuai menu (Western -> Nusantara -> Kids -> Happy Bites -> Royale)
+$stock_levels = $conn->query("
+    SELECT * FROM refrigerator_stock 
+    ORDER BY 
+    CASE 
+        WHEN product_name LIKE '%Western%' THEN 1
+        WHEN product_name LIKE '%Nusantara%' THEN 2
+        WHEN product_name LIKE '%Kids%' THEN 3
+        WHEN product_name LIKE '%Happy%' THEN 4
+        WHEN product_name LIKE '%Royale%' THEN 5
+        ELSE 6 
+    END, product_name ASC
+")->fetch_all(MYSQLI_ASSOC);
 
 // 2. Get Transaction Summary for the selected date
 $transaction_summary = [
@@ -150,7 +161,7 @@ if ($stmt_summary) {
     while ($row = $result_summary->fetch_assoc()) {
         $type = $row['transaction_type'];
         $product_key = $row['product_name'];
-        $product = str_replace('_', ' ', $product_key);
+        $product = ucwords(str_replace('_', ' ', $product_key));
         $qty = (int)$row['total_quantity'];
 
         $transaction_summary[$type] += $qty;
@@ -341,7 +352,7 @@ if ($is_manager_or_higher) {
                     <span class="page-icon">🍽️</span>
                     Manajemen Stok Resto
                 </h1>
-                <p>Kelola deposit dan withdraw stok paket makanan.</p>
+                <p>Kelola deposit dan withdraw stok paket makanan (Termasuk Happy Bites & Royale).</p>
             </div>
 
             <?php if (isset($success)): ?>
@@ -360,7 +371,7 @@ if ($is_manager_or_higher) {
                     <div class="stock-grid">
                         <?php foreach ($stock_levels as $stock): ?>
                             <div class="stock-card">
-                                <h4><?= htmlspecialchars(str_replace('_', ' ', $stock['product_name'])) ?></h4>
+                                <h4><?= htmlspecialchars(ucwords(str_replace('_', ' ', $stock['product_name']))) ?></h4>
                                 <p class="quantity"><?= $stock['quantity'] ?></p>
                             </div>
                         <?php endforeach; ?>
@@ -380,7 +391,9 @@ if ($is_manager_or_higher) {
                         <div class="stock-multi-input-grid">
                             <?php foreach ($stock_levels as $stock): ?>
                                 <div class="product-input-group">
-                                    <label for="quantity_<?= $stock['product_name'] ?>"><?= htmlspecialchars(str_replace('_', ' ', $stock['product_name'])) ?></label>
+                                    <label for="quantity_<?= $stock['product_name'] ?>">
+                                        <?= htmlspecialchars(ucwords(str_replace('_', ' ', $stock['product_name']))) ?>
+                                    </label>
                                     <input type="number" 
                                            name="quantities[<?= htmlspecialchars($stock['product_name']) ?>]" 
                                            id="quantity_<?= $stock['product_name'] ?>" 
@@ -462,7 +475,7 @@ if ($is_manager_or_higher) {
                                 <?php foreach ($transactions as $log): ?>
                                     <div class="log-item">
                                         <div class="log-info">
-                                            <strong><?= htmlspecialchars(str_replace('_', ' ', $log['product_name'])) ?></strong>
+                                            <strong><?= htmlspecialchars(ucwords(str_replace('_', ' ', $log['product_name']))) ?></strong>
                                             <span>
                                                 oleh <span style="font-weight: 600;"><?= htmlspecialchars($log['employee_name']) ?></span> pada <?= date('d/m/Y H:i:s', strtotime($log['transaction_at'])) ?>
                                             </span>

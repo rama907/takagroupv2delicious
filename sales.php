@@ -50,7 +50,6 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
         $conn->begin_transaction();
         try {
             // Ambil detail entri sebelum dihapus untuk notifikasi
-            // Pastikan mengambil paket_vip_person (Royale)
             $stmt_get_entry = $conn->prepare("
                 SELECT *, date, input_time, employee_id
                 FROM sales_data
@@ -83,14 +82,11 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
                 sendDiscordNotification([
                     'employee_name' => getEmployeeNameById($entry_details['employee_id']),
                     'sales_date_time' => date('d/m/Y H:i', strtotime($entry_details['input_time'])),
-                    'paket_sake' => $entry_details['paket_sake'] ?? 0, // Western
-                    'paket_anggur_merah' => $entry_details['paket_anggur_merah'] ?? 0, // Nusantara
-                    'paket_tuak' => $entry_details['paket_tuak'] ?? 0, // Kids Meal
-                    'paket_vip_person' => $entry_details['paket_vip_person'] ?? 0, // Royale
-                    'paket_soju' => 0,
-                    'paket_spicy_1' => 0,
-                    'paket_azul_1' => 0, 
-                    'paket_azul_2' => 0, 
+                    'paket_western' => $entry_details['paket_western'] ?? 0,
+                    'paket_nusantara' => $entry_details['paket_nusantara'] ?? 0,
+                    'paket_kids_meal' => $entry_details['paket_kids'] ?? 0, // Disesuaikan nama kolom DB 'paket_kids'
+                    'happy_bites' => $entry_details['happy_bites'] ?? 0,
+                    'paket_royale' => $entry_details['paket_royale'] ?? 0,
                 ], 'sale_deleted');
 
             } else {
@@ -123,11 +119,12 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
     $employee_id_from_form = (int)($_POST['employee_id'] ?? $user['id']);
     $date_input = $_POST['date'] ?? '';
 
-    // === NEW PACKAGES ===
+    // === SALES ITEMS ===
     $paket_western = (int)($_POST['paket_western'] ?? 0);
     $paket_nusantara = (int)($_POST['paket_nusantara'] ?? 0);
     $paket_kids_meal = (int)($_POST['paket_kids_meal'] ?? 0);
-    $paket_royale = (int)($_POST['paket_royale'] ?? 0); // New Input
+    $happy_bites = (int)($_POST['happy_bites'] ?? 0); // New Menu
+    $paket_royale = (int)($_POST['paket_royale'] ?? 0);
     // ====================
     
     $error_message = null; 
@@ -169,7 +166,7 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
     }
 
     // PENTING: Cek apakah ada input paket baru
-    $total_new_packages = $paket_western + $paket_nusantara + $paket_kids_meal + $paket_royale;
+    $total_new_packages = $paket_western + $paket_nusantara + $paket_kids_meal + $happy_bites + $paket_royale;
     if ($total_new_packages === 0 && !isset($error_message)) {
         $error_message = "Harap masukkan minimal satu paket makanan yang terjual!";
     }
@@ -187,38 +184,33 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
     $conn->begin_transaction();
     try {
         // --- 1. INSERT INTO sales_data ---
-        // Mapping paket baru ke kolom lama yang ada: 
-        // paket_sake -> Paket Western
-        // paket_anggur_merah -> Paket Nusantara
-        // paket_tuak -> Paket Kids Meal
-        // paket_vip_person -> Paket Royale (NEW MAPPING)
+        // Menggunakan kolom spesifik sesuai struktur database terbaru
         
         $stmt = $conn->prepare("
             INSERT INTO sales_data (
                 employee_id, date, input_time, week_number, year, 
-                paket_sake, paket_anggur_merah, paket_tuak, paket_soju,
-                paket_spicy_1, paket_spicy_2, paket_spicy_3,
-                paket_vip_person, paket_special_30min
+                paket_western, paket_nusantara, paket_kids, 
+                happy_bites, paket_royale
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 0, ?, 0)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
         
         if (!$stmt) {
              throw new Exception("Gagal menyiapkan query insert sales: " . $conn->error);
         }
         
-        // Binding parameters: isssiiiii (9 params)
-        $stmt->bind_param("isssiiiii", 
+        // Binding parameters: isssiiiiii (10 params)
+        $stmt->bind_param("isssiiiiii", 
             $employee_id_from_form, 
             $formatted_date, 
             $input_time,
             $week_number,
             $year,
-            // Mapping Paket Makanan Baru ke Kolom Lama:
-            $paket_western,         // -> paket_sake
-            $paket_nusantara,       // -> paket_anggur_merah
-            $paket_kids_meal,       // -> paket_tuak
-            $paket_royale           // -> paket_vip_person
+            $paket_western,         
+            $paket_nusantara,       
+            $paket_kids_meal,       // Maps to paket_kids column
+            $happy_bites,
+            $paket_royale           
         );
         
         if (!$stmt->execute()) {
@@ -228,11 +220,11 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
         
         // --- 2. AUTOMATIC STOCK WITHDRAWAL (KULKAS/RESTO STOCK) ---
         // Pemetaan: [internal_key] => ['Stock Name (DB)', 'qty_per_pack', sold_qty]
-        // Pastikan nama stok 'Paket Royale' sesuai dengan yang didaftarkan di data-masak.php
         $withdrawal_map = [
             'western' => ['Paket Western', 1, $paket_western],
             'nusantara' => ['Paket Nusantara', 1, $paket_nusantara],
             'kids_meal' => ['Paket Kids Meal', 1, $paket_kids_meal],
+            'happy_bites' => ['Happy Bites', 1, $happy_bites], // Stock Name assumed
             'royale' => ['Paket Royale', 1, $paket_royale],
         ];
 
@@ -303,7 +295,7 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
         
         $success_message = "Data penjualan berhasil disimpan untuk tanggal " . date('d/m/Y', strtotime($formatted_date)) . " pada jam " . date('H:i', strtotime($input_time)) . "!";
         
-        // Kirim notifikasi Discord untuk sales (logika asli - menyesuaikan nama paket)
+        // Kirim notifikasi Discord untuk sales
         sendDiscordNotification([
             'employee_name' => getEmployeeNameById($employee_id_from_form),
             'date' => $formatted_date,
@@ -311,19 +303,11 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
             'paket_western' => $paket_western,
             'paket_nusantara' => $paket_nusantara,
             'paket_kids_meal' => $paket_kids_meal,
-            'paket_vip_person' => $paket_royale, // Royale
-            // Kirim 0 untuk field yang tidak relevan agar notifikasi Discord tetap terstruktur
-            'paket_sake' => 0, 
-            'paket_anggur_merah' => 0, 
-            'paket_tuak' => 0, 
-            'paket_soju' => 0,
-            'paket_spicy_1' => 0,
-            'paket_azul_1' => 0,
-            'paket_azul_2' => 0,
-            'paket_special_30min' => 0
+            'happy_bites' => $happy_bites,
+            'paket_royale' => $paket_royale, 
         ], 'sale_input');
         
-        // Kirim notifikasi Discord untuk penarikan stok (BARU)
+        // Kirim notifikasi Discord untuk penarikan stok
         if ($total_items_withdrawn > 0) {
              sendDiscordNotification([
                 'employee_name' => getEmployeeNameById($employee_id_from_form),
@@ -343,45 +327,24 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
 }
 
 // Query untuk Ringkasan Input Penjualan (menyeluruh)
-// Menambahkan filter untuk MENGHAPUS log masak
+// Karena database sales_data sekarang TERPISAH dari data-masak, kita tidak perlu filter 'log masak' lagi.
 $overall_sales_summary = [
-    'paket_western' => 0,       // maps to paket_sake
-    'paket_nusantara' => 0,     // maps to paket_anggur_merah
-    'paket_kids_meal' => 0,     // maps to paket_tuak
-    'paket_royale' => 0,        // maps to paket_vip_person
+    'paket_western' => 0,       
+    'paket_nusantara' => 0,     
+    'paket_kids_meal' => 0,     
+    'happy_bites' => 0,
+    'paket_royale' => 0,        
 ];
-$stmt = $conn->prepare("
-    SELECT 
-        SUM(paket_sake) as paket_western, 
-        SUM(paket_anggur_merah) as paket_nusantara, 
-        SUM(paket_tuak) as paket_kids_meal,
-        SUM(paket_vip_person) as paket_royale
-    FROM sales_data 
-    WHERE employee_id = ?
-    AND (paket_spicy_1 + paket_spicy_2 + paket_spicy_3 + paket_vip_person) = 0 /* FILTER OUT MASAK LOGS */
-    AND (paket_sake + paket_anggur_merah + paket_tuak + paket_vip_person) > 0 /* ONLY INCLUDE SALES LOGS */
-");
-// Note: Logic filter di atas sedikit tricky karena kita pakai vip_person untuk royale.
-// Jika Masak Royale (data-masak.php), vip_person > 0.
-// Jika Jual Royale (sales.php), vip_person > 0.
-// Solusi: Di data-masak.php, kita menyimpan ke vip_person tapi sake/anggur/tuak = 0.
-// Di sales.php, kita menyimpan ke sake/anggur/tuak/vip_person.
-// Untuk membedakan secara pasti:
-// Log Masak: spicy_1, spicy_2, spicy_3 salah satu > 0 ATAU vip_person > 0 TAPI (sake+anggur+tuak)=0
-// Log Jual: (sake+anggur+tuak) > 0 ATAU (vip_person > 0 DAN spicy_1+spicy_2+spicy_3 = 0)
-// Simplified Logic for Sales Query:
-// Kita asumsikan entri JUAL Royale pasti dibarengi sake/anggur/tuak ATAU jika hanya jual Royale, spicy columns harus 0.
 
 $stmt = $conn->prepare("
     SELECT 
-        SUM(paket_sake) as paket_western, 
-        SUM(paket_anggur_merah) as paket_nusantara, 
-        SUM(paket_tuak) as paket_kids_meal,
-        SUM(paket_vip_person) as paket_royale
+        SUM(paket_western) as paket_western, 
+        SUM(paket_nusantara) as paket_nusantara, 
+        SUM(paket_kids) as paket_kids_meal,
+        SUM(happy_bites) as happy_bites,
+        SUM(paket_royale) as paket_royale
     FROM sales_data 
     WHERE employee_id = ?
-    AND (paket_spicy_1 + paket_spicy_2 + paket_spicy_3) = 0 /* Memastikan bukan log masak Western/Nusantara/Kids */
-    /* Kita ambil baris yang merupakan penjualan. Penjualan ditandai dengan tidak adanya log masak di baris tsb */
 ");
 
 $stmt->bind_param("i", $employee_id_to_submit);
@@ -392,18 +355,21 @@ if ($overall_sales_summary_result) {
 }
 $stmt->close();
 
-$total_overall_sales = $overall_sales_summary['paket_western'] + $overall_sales_summary['paket_nusantara'] + $overall_sales_summary['paket_kids_meal'] + $overall_sales_summary['paket_royale'];
+$total_overall_sales = ($overall_sales_summary['paket_western'] ?? 0) + 
+                       ($overall_sales_summary['paket_nusantara'] ?? 0) + 
+                       ($overall_sales_summary['paket_kids_meal'] ?? 0) + 
+                       ($overall_sales_summary['happy_bites'] ?? 0) +
+                       ($overall_sales_summary['paket_royale'] ?? 0);
 
 
 $today = date('Y-m-d');
-// Query untuk Riwayat Penjualan Terbaru (Hanya Penjualan)
+// Query untuk Riwayat Penjualan Terbaru
 $stmt = $conn->prepare("
     SELECT 
         id, input_time, 
-        paket_sake, paket_anggur_merah, paket_tuak, paket_vip_person
+        paket_western, paket_nusantara, paket_kids, happy_bites, paket_royale
     FROM sales_data 
     WHERE employee_id = ? AND date = ? 
-    AND (paket_spicy_1 + paket_spicy_2 + paket_spicy_3) = 0 /* FILTER OUT MASAK LOGS */
     ORDER BY input_time DESC
 ");
 $stmt->bind_param("is", $employee_id_to_submit, $today);
@@ -416,14 +382,16 @@ $daily_total = [
     'paket_western' => 0,
     'paket_nusantara' => 0,
     'paket_kids_meal' => 0,
+    'happy_bites' => 0,
     'paket_royale' => 0,
     'total_entries' => count($recent_sales)
 ];
 foreach ($recent_sales as $entry) {
-    $daily_total['paket_western'] += $entry['paket_sake']; 
-    $daily_total['paket_nusantara'] += $entry['paket_anggur_merah']; 
-    $daily_total['paket_kids_meal'] += $entry['paket_tuak']; 
-    $daily_total['paket_royale'] += $entry['paket_vip_person']; 
+    $daily_total['paket_western'] += $entry['paket_western']; 
+    $daily_total['paket_nusantara'] += $entry['paket_nusantara']; 
+    $daily_total['paket_kids_meal'] += $entry['paket_kids']; 
+    $daily_total['happy_bites'] += $entry['happy_bites'];
+    $daily_total['paket_royale'] += $entry['paket_royale']; 
 }
 
 ?>
@@ -542,6 +510,10 @@ foreach ($recent_sales as $entry) {
                             <span class="stat-value" style="font-size: 1.2em;"><?= $overall_sales_summary['paket_kids_meal'] ?? 0 ?></span>
                         </div>
                         <div class="stat-item">
+                            <span class="stat-label">Happy Bites</span>
+                            <span class="stat-value" style="font-size: 1.2em;"><?= $overall_sales_summary['happy_bites'] ?? 0 ?></span>
+                        </div>
+                        <div class="stat-item">
                             <span class="stat-label">Paket Royale</span>
                             <span class="stat-value" style="font-size: 1.2em;"><?= $overall_sales_summary['paket_royale'] ?? 0 ?></span>
                         </div>
@@ -630,6 +602,14 @@ foreach ($recent_sales as $entry) {
                                 </div>
                             </div>
                             <div class="product-card">
+                                <label for="happy_bites">HAPPY BITES</label>
+                                <p>(Potong Stok Resto: 1 Paket Happy Bites)</p>
+                                <div class="quantity-group">
+                                    <label for="happy_bites">Paket</label>
+                                    <input type="number" name="happy_bites" id="happy_bites" value="0" min="0">
+                                </div>
+                            </div>
+                            <div class="product-card">
                                 <label for="paket_royale">PAKET ROYALE</label>
                                 <p>(Potong Stok Resto: 1 Paket Royale)</p>
                                 <div class="quantity-group">
@@ -667,6 +647,7 @@ foreach ($recent_sales as $entry) {
                                         <th>Western</th>
                                         <th>Nusantara</th>
                                         <th>Kids Meal</th>
+                                        <th>Happy Bites</th>
                                         <th>Royale</th>
                                         <th>Aksi</th>
                                     </tr>
@@ -685,10 +666,11 @@ foreach ($recent_sales as $entry) {
                                                 <?php endif; ?>
                                             </div>
                                         </td>
-                                        <td data-label="Western"><?= $sale['paket_sake'] ?? 0 ?></td>
-                                        <td data-label="Nusantara"><?= $sale['paket_anggur_merah'] ?? 0 ?></td>
-                                        <td data-label="Kids Meal"><?= $sale['paket_tuak'] ?? 0 ?></td>
-                                        <td data-label="Royale"><?= $sale['paket_vip_person'] ?? 0 ?></td>
+                                        <td data-label="Western"><?= $sale['paket_western'] ?? 0 ?></td>
+                                        <td data-label="Nusantara"><?= $sale['paket_nusantara'] ?? 0 ?></td>
+                                        <td data-label="Kids Meal"><?= $sale['paket_kids'] ?? 0 ?></td>
+                                        <td data-label="Happy Bites"><?= $sale['happy_bites'] ?? 0 ?></td>
+                                        <td data-label="Royale"><?= $sale['paket_royale'] ?? 0 ?></td>
                                         <td data-label="Aksi">
                                             <form method="POST" onsubmit="return confirm('Yakin ingin menghapus entri penjualan ini? Aksi ini TIDAK DAPAT DIBATALKAN.')">
                                                 <input type="hidden" name="action" value="delete_sales_entry">

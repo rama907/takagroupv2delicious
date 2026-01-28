@@ -1,5 +1,5 @@
 <?php
-// File: rama907/royale/rama907-royale-dce4e0e7b942e5a36623cd5ec63d3858cfb4b22c/warehouse-stock.php
+// File: warehouse-stock.php
 require_once 'config.php';
 
 if (!isLoggedIn()) {
@@ -56,7 +56,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     $transaction_type = 'deposit';
                 } elseif ($action === 'withdraw') {
                     if ($current_quantity < $quantity) {
-                        throw new Exception("Stok produk " . str_replace('_', ' ', $product_name) . " tidak mencukupi! Stok: {$current_quantity}.");
+                        throw new Exception("Stok produk " . ucwords(str_replace('_', ' ', $product_name)) . " tidak mencukupi! Stok: {$current_quantity}.");
                     }
                     $new_quantity -= $quantity;
                     $transaction_type = 'withdraw';
@@ -86,18 +86,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $stmt->close();
                 
                 $successful_logs++;
-                $processed_items_list[] = htmlspecialchars(str_replace('_', ' ', $product_name)) . " (x{$quantity})";
+                $processed_items_list[] = htmlspecialchars(ucwords(str_replace('_', ' ', $product_name))) . " (x{$quantity})";
             }
             
             $conn->commit();
             $success = "Transaksi " . ucfirst($action) . " berhasil untuk {$successful_logs} item: " . implode(', ', $processed_items_list);
             
-            // >>>>>> MODIFIKASI: Kirim notifikasi Discord untuk stok gudang <<<<<<
+            // Kirim notifikasi Discord untuk stok gudang
             sendDiscordNotification([
                 'employee_name' => $user['name'],
                 'product_list' => $items_to_process, // Kirim array product_name => quantity
             ], "warehouse_{$action}");
-            // >>>>>> AKHIR MODIFIKASI <<<<<<
             
             // Redirect untuk menampilkan pesan sukses dan memuat ulang data
             header("Location: warehouse-stock.php?msg=" . urlencode($success) . "&type=success&filter_date=" . urlencode($selected_date));
@@ -132,7 +131,7 @@ $stock_levels_raw = $conn->query("SELECT * FROM warehouse_stock ORDER BY product
 $stock_levels = array_map(function($item) {
     return [
         'product_name' => $item['product_name'],
-        'display_name' => str_replace('_', ' ', $item['product_name']),
+        'display_name' => ucwords(str_replace('_', ' ', $item['product_name'])),
         'quantity' => $item['quantity']
     ];
 }, $stock_levels_raw);
@@ -158,7 +157,7 @@ if ($stmt_summary) {
 
     while ($row = $result_summary->fetch_assoc()) {
         $type = $row['transaction_type'];
-        $product = str_replace('_', ' ', $row['product_name']);
+        $product = ucwords(str_replace('_', ' ', $row['product_name']));
         $qty = (int)$row['total_quantity'];
 
         $transaction_summary[$type] += $qty;
@@ -474,7 +473,7 @@ if ($is_manager_or_higher) {
                                 <?php foreach ($transactions as $log): ?>
                                     <div class="log-item">
                                         <div class="log-info">
-                                            <strong><?= htmlspecialchars(str_replace('_', ' ', $log['product_name'])) ?></strong>
+                                            <strong><?= htmlspecialchars(ucwords(str_replace('_', ' ', $log['product_name']))) ?></strong>
                                             <span>
                                                 oleh <span style="font-weight: 600;"><?= htmlspecialchars($log['employee_name']) ?></span> pada <?= date('d/m/Y H:i:s', strtotime($log['transaction_at'])) ?>
                                             </span>

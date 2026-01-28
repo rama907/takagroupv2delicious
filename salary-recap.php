@@ -58,28 +58,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                  throw new Exception("Anda tidak memiliki izin untuk menghapus semua data aktivitas.");
             }
 
+            // 1. Hapus Sales Data
             $stmt_delete_sales = $conn->prepare("DELETE FROM sales_data");
-            if (!$stmt_delete_sales) {
-                throw new Exception("Gagal menyiapkan query hapus data penjualan massal: " . $conn->error);
-            }
+            if (!$stmt_delete_sales) { throw new Exception("Gagal menyiapkan query hapus sales: " . $conn->error); }
             $stmt_delete_sales->execute();
             $deleted_sales_count = $stmt_delete_sales->affected_rows;
             $stmt_delete_sales->close();
 
+            // 2. Hapus Cooking Data (NEW)
+            $stmt_delete_cooking = $conn->prepare("DELETE FROM cooking_data");
+            if (!$stmt_delete_cooking) { throw new Exception("Gagal menyiapkan query hapus cooking: " . $conn->error); }
+            $stmt_delete_cooking->execute();
+            $deleted_cooking_count = $stmt_delete_cooking->affected_rows;
+            $stmt_delete_cooking->close();
+
+            // 3. Hapus Duty Logs (Completed)
             $stmt_delete_duty = $conn->prepare("DELETE FROM duty_logs WHERE status = 'completed'");
-            if (!$stmt_delete_duty) {
-                throw new Exception("Gagal menyiapkan query hapus log jam kerja massal: " . $conn->error);
-            }
+            if (!$stmt_delete_duty) { throw new Exception("Gagal menyiapkan query hapus log duty: " . $conn->error); }
             $stmt_delete_duty->execute();
             $deleted_duty_count = $stmt_delete_duty->affected_rows;
             $stmt_delete_duty->close();
 
             $conn->commit();
-            $success_message = "Semua data aktivitas (**{$deleted_sales_count} penjualan** dan **{$deleted_duty_count} log duty selesai**) berhasil dihapus untuk **SEMUA** anggota.";
+            $success_message = "Reset Total Berhasil: **{$deleted_sales_count}** Penjualan, **{$deleted_cooking_count}** Data Masak, dan **{$deleted_duty_count}** Log Duty dihapus.";
 
             sendDiscordNotification([
                 'admin_name' => $user['name'],
                 'deleted_sales' => $deleted_sales_count,
+                'deleted_cooking' => $deleted_cooking_count,
                 'deleted_duty_logs' => $deleted_duty_count,
                 'action_type' => 'mass_activity_delete'
             ], 'admin_system_action');
@@ -131,18 +137,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 }
                 $stmt->close();
             } elseif ($action === 'delete_sales_data') {
-                $stmt_delete_sales = $conn->prepare("DELETE FROM sales_data WHERE employee_id = ?");
-                $stmt_delete_sales->bind_param("i", $employee_id);
-                $stmt_delete_sales->execute();
-                $stmt_delete_sales->close();
+                // Hapus data personal
+                $stmt = $conn->prepare("DELETE FROM sales_data WHERE employee_id = ?");
+                $stmt->bind_param("i", $employee_id);
+                $stmt->execute();
+                $stmt->close();
 
-                $stmt_delete_duty = $conn->prepare("DELETE FROM duty_logs WHERE employee_id = ? AND status = 'completed'");
-                $stmt_delete_duty->bind_param("i", $employee_id);
-                $stmt_delete_duty->execute();
-                $stmt_delete_duty->close();
+                $stmt = $conn->prepare("DELETE FROM cooking_data WHERE employee_id = ?");
+                $stmt->bind_param("i", $employee_id);
+                $stmt->execute();
+                $stmt->close();
+
+                $stmt = $conn->prepare("DELETE FROM duty_logs WHERE employee_id = ? AND status = 'completed'");
+                $stmt->bind_param("i", $employee_id);
+                $stmt->execute();
+                $stmt->close();
 
                 $conn->commit();
-                $success_message = "Semua data penjualan dan jam kerja untuk **" . htmlspecialchars($employee_name) . "** telah dihapus.";
+                $success_message = "Semua data aktivitas (Jual, Masak, Duty) untuk **" . htmlspecialchars($employee_name) . "** telah dihapus.";
             }
         }
 
@@ -167,16 +179,15 @@ if (isset($_GET['msg']) && isset($_GET['type'])) {
 $employees_data = [];
 $total_payroll_expenditure = 0;
 
-// --- QUERY UTAMA ---
-// [MODIFIKASI]: Menambahkan paket_vip_person (Royale) dan memfilter data masak
+// --- QUERY UTAMA (UPDATE: Sales Data & Happy Bites) ---
 $stmt = $conn->query("
     SELECT e.id, e.name, e.role, e.is_on_duty, e.is_paid,
            COALESCE(duty_summary.total_duty_minutes, 0) as total_duty_minutes,
-           COALESCE(sales_summary.paket_sake, 0) as paket_sake,
-           COALESCE(sales_summary.paket_anggur_merah, 0) as paket_anggur_merah,
-           COALESCE(sales_summary.paket_tuak, 0) as paket_tuak,
-           COALESCE(sales_summary.paket_soju, 0) as paket_soju,
-           COALESCE(sales_summary.paket_vip_person, 0) as paket_royale
+           COALESCE(sales_summary.sales_western, 0) as sales_western,
+           COALESCE(sales_summary.sales_nusantara, 0) as sales_nusantara,
+           COALESCE(sales_summary.sales_kids, 0) as sales_kids,
+           COALESCE(sales_summary.sales_happy_bites, 0) as sales_happy_bites,
+           COALESCE(sales_summary.sales_royale, 0) as sales_royale
     FROM employees e
     LEFT JOIN (
         SELECT employee_id, SUM(duration_minutes) as total_duty_minutes
@@ -184,16 +195,12 @@ $stmt = $conn->query("
     ) as duty_summary ON e.id = duty_summary.employee_id
     LEFT JOIN (
         SELECT employee_id,
-            SUM(paket_sake) as paket_sake,
-            SUM(paket_anggur_merah) as paket_anggur_merah,
-            SUM(paket_tuak) as paket_tuak,
-            SUM(paket_soju) as paket_soju,
-            SUM(paket_vip_person) as paket_vip_person
+            SUM(paket_western) as sales_western,
+            SUM(paket_nusantara) as sales_nusantara,
+            SUM(paket_kids) as sales_kids,
+            SUM(happy_bites) as sales_happy_bites,
+            SUM(paket_royale) as sales_royale
         FROM sales_data
-        /* [PENTING] FILTER: Hanya ambil data yang BUKAN masak.
-           Di sistem ini, jika spicy_1+2+3 > 0, itu adalah data dari data-masak.php.
-           Kita exclude itu agar hanya menghitung Murni Sales. */
-        WHERE (paket_spicy_1 + paket_spicy_2 + paket_spicy_3) = 0
         GROUP BY employee_id
     ) as sales_summary ON e.id = sales_summary.employee_id
     WHERE e.status = 'active'
@@ -209,15 +216,13 @@ foreach ($employees_raw_data as $employee) {
     // Hitung Jam Kerja yang Dibulatkan
     $rounded_duty_hours = roundToNearestHour($total_duty_minutes);
     
-    // [MODIFIKASI] Total Penjualan (Hanya Sales, tanpa Masak)
-    // paket_royale diambil dari paket_vip_person
+    // [MODIFIKASI] Total Penjualan (Struktur Baru termasuk Happy Bites)
     $total_sales_packages = 
-        ($employee['paket_sake'] ?? 0) + 
-        ($employee['paket_anggur_merah'] ?? 0) + 
-        ($employee['paket_tuak'] ?? 0) + 
-        ($employee['paket_soju'] ?? 0) + 
-        ($employee['paket_royale'] ?? 0); 
-    // Catatan: Tidak menjumlahkan paket_spicy_... karena itu data masak.
+        ($employee['sales_western'] ?? 0) + 
+        ($employee['sales_nusantara'] ?? 0) + 
+        ($employee['sales_kids'] ?? 0) + 
+        ($employee['sales_happy_bites'] ?? 0) + 
+        ($employee['sales_royale'] ?? 0); 
 
     // --- LOGIKA PERHITUNGAN GAJI BARU ---
     $gaji_pokok = 0;        // Gaji Duty
@@ -298,9 +303,9 @@ if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
         'Total Jam Duty (Jam Asli)',
         'Total Jam Duty (Bulat)',
         'Total Penjualan (Murni Sales)',
-        'Gaji Duty (Rp)',
-        'Bonus Penjualan (Rp)',
-        'Total Terima (Rp)',
+        'Gaji Duty ($)',
+        'Bonus Penjualan ($)',
+        'Total Terima ($)',
         'Keterangan',
         'Status'
     ];
@@ -313,9 +318,9 @@ if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
             number_format($row['total_duty_minutes'] / 60, 2),
             $row['rounded_duty_hours'],
             $row['total_sales_packages'],
-            $row['gaji_pokok'],
-            $row['bonus_penjualan'],
-            $row['total_gajian'],
+            number_format($row['gaji_pokok'], 0, '.', ','),
+            number_format($row['bonus_penjualan'], 0, '.', ','),
+            number_format($row['total_gajian'], 0, '.', ','),
             $row['keterangan_gaji'],
             $row['is_paid'] ? 'Sudah Dibayar' : 'Belum Dibayar'
         ];
@@ -403,7 +408,7 @@ if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
                     <form method="POST" style="display: inline;" onsubmit="return confirm('⚠️ Hapus SEMUA data aktivitas? Tidak bisa dibatalkan.')">
                         <input type="hidden" name="action" value="delete_all_activity_data">
                         <button type="submit" class="btn btn-danger">
-                            <span class="btn-icon">🗑️</span> Hapus Data Aktivitas
+                            <span class="btn-icon">🗑️</span> Reset Total Data
                         </button>
                     </form>
                     <?php endif; ?>
@@ -422,7 +427,7 @@ if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
                     <div class="summary-icon" style="color: var(--info-color);">💲</div>
                     <div class="summary-content">
                         <h4>Total Pengeluaran</h4>
-                        <p class="summary-value"><?= 'Rp ' . number_format($total_payroll_expenditure, 0, ',', '.') ?></p>
+                        <p class="summary-value"><?= '$ ' . number_format($total_payroll_expenditure, 0, '.', ',') ?></p>
                     </div>
                 </div>
                 <div class="summary-card">
@@ -476,14 +481,14 @@ if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
                                             <strong><?= $employee['total_sales_packages'] ?> Paket</strong>
                                         </td>
                                         <td data-label="Gaji Duty">
-                                            Rp <?= number_format($employee['gaji_pokok'], 0, ',', '.') ?>
+                                            $ <?= number_format($employee['gaji_pokok'], 0, '.', ',') ?>
                                         </td>
                                         <td data-label="Bonus Sales">
-                                            Rp <?= number_format($employee['bonus_penjualan'], 0, ',', '.') ?>
+                                            $ <?= number_format($employee['bonus_penjualan'], 0, '.', ',') ?>
                                         </td>
                                         <td data-label="Total Terima">
                                             <strong style="font-size: 1.1em; color: var(--success-color);">
-                                                Rp <?= number_format($employee['total_gajian'], 0, ',', '.') ?>
+                                                $ <?= number_format($employee['total_gajian'], 0, '.', ',') ?>
                                             </strong>
                                             <div style="margin-top: 5px;">
                                                 <span class="payslip-status <?= $employee['is_paid'] ? 'paid' : 'unpaid' ?>">
@@ -510,7 +515,7 @@ if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
                                                 <button class="btn btn-warning btn-sm">✖ Batal</button>
                                             </form>
                                             <?php endif; ?>
-                                            <form method="POST" style="display:inline; margin-top:5px;" onsubmit="return confirm('Hapus data aktivitas orang ini?')">
+                                            <form method="POST" style="display:inline; margin-top:5px;" onsubmit="return confirm('Hapus data aktivitas orang ini (Jual/Masak/Duty)?')">
                                                 <input type="hidden" name="action" value="delete_sales_data">
                                                 <input type="hidden" name="employee_id" value="<?= $employee['id'] ?>">
                                                 <button class="btn btn-danger btn-sm">🗑️ Reset</button>

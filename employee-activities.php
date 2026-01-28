@@ -4,10 +4,10 @@ require_once 'config.php';
 // Ambil jumlah permohonan pending untuk indikator sidebar
 $pending_requests_count = getPendingRequestCount();
 
-// Pastikan fungsi formatDuration dan getRoleDisplayName ada di config.php atau di-include di tempat lain
+// Pastikan fungsi formatDuration dan getRoleDisplayName ada
 if (!function_exists('formatDuration')) {
     function formatDuration($minutes) {
-        if ($minutes < 0) return "0j 0m"; // Tangani durasi negatif dengan baik
+        if ($minutes < 0) return "0j 0m";
         $hours = floor($minutes / 60);
         $remainingMinutes = $minutes % 60;
         return "{$hours}j {$remainingMinutes}m";
@@ -21,11 +21,10 @@ if (!function_exists('getRoleDisplayName')) {
             'direktur' => 'Direktur',
             'wakil_direktur' => 'Wakil Direktur',
             'manager' => 'Manager',
-            'barista' => 'Barista', // Updated role name based on context usually found
+            'barista' => 'Barista',
             'waiters' => 'Waiters',
             'karyawan' => 'Karyawan',
             'magang' => 'Magang',
-            // Tambahkan peran lain jika ada
         ];
         return $roles[$role] ?? ucfirst(str_replace('_', ' ', $role));
     }
@@ -37,7 +36,7 @@ if (!isLoggedIn() || !hasRole(['ceo', 'direktur', 'wakil_direktur', 'manager']))
 }
 
 // Dapatkan ringkasan aktivitas karyawan (mengambil data keseluruhan)
-// MODIFIKASI QUERY: Menambahkan Logika Royale (paket_vip_person)
+// MODIFIKASI QUERY: Menggunakan tabel sales_data dan cooking_data secara terpisah
 $stmt = $conn->query("
     SELECT
         e.id,
@@ -46,31 +45,35 @@ $stmt = $conn->query("
         e.is_on_duty,
         COALESCE(duty_summary.total_duty_minutes, 0) as total_duty_minutes,
         
-        -- Kolom Sales
-        COALESCE(sales_summary.paket_sake, 0) as paket_western_sales,
-        COALESCE(sales_summary.paket_anggur_merah, 0) as paket_nusantara_sales,
-        COALESCE(sales_summary.paket_tuak, 0) as paket_kids_meal_sales,
-        COALESCE(sales_summary.paket_royale_sales, 0) as paket_royale_sales, -- NEW
+        -- Kolom Sales (Dari sales_data)
+        COALESCE(sales_summary.sales_western, 0) as paket_western_sales,
+        COALESCE(sales_summary.sales_nusantara, 0) as paket_nusantara_sales,
+        COALESCE(sales_summary.sales_kids, 0) as paket_kids_meal_sales,
+        COALESCE(sales_summary.sales_happy_bites, 0) as happy_bites_sales, -- NEW
+        COALESCE(sales_summary.sales_royale, 0) as paket_royale_sales,
         
-        -- Kolom Masak
-        COALESCE(sales_summary.paket_spicy_1, 0) as paket_western_prep, 
-        COALESCE(sales_summary.paket_spicy_2, 0) as paket_nusantara_prep,  
-        COALESCE(sales_summary.paket_spicy_3, 0) as paket_kids_meal_prep,
-        COALESCE(sales_summary.paket_royale_prep, 0) as paket_royale_prep, -- NEW
+        -- Kolom Masak (Dari cooking_data)
+        COALESCE(prep_summary.prep_western, 0) as paket_western_prep, 
+        COALESCE(prep_summary.prep_nusantara, 0) as paket_nusantara_prep,  
+        COALESCE(prep_summary.prep_kids, 0) as paket_kids_meal_prep,
+        COALESCE(prep_summary.prep_happy_bites, 0) as happy_bites_prep, -- NEW
+        COALESCE(prep_summary.prep_royale, 0) as paket_royale_prep,
         
-        -- TOTAL CALCULATED FIELDS (Updated with Royale)
+        -- TOTAL CALCULATED FIELDS
         (
-            COALESCE(sales_summary.paket_sake, 0) + 
-            COALESCE(sales_summary.paket_anggur_merah, 0) + 
-            COALESCE(sales_summary.paket_tuak, 0) +
-            COALESCE(sales_summary.paket_royale_sales, 0)
+            COALESCE(sales_summary.sales_western, 0) + 
+            COALESCE(sales_summary.sales_nusantara, 0) + 
+            COALESCE(sales_summary.sales_kids, 0) +
+            COALESCE(sales_summary.sales_happy_bites, 0) +
+            COALESCE(sales_summary.sales_royale, 0)
         ) AS total_sales_packages,
         
         (
-            COALESCE(sales_summary.paket_spicy_1, 0) + 
-            COALESCE(sales_summary.paket_spicy_2, 0) + 
-            COALESCE(sales_summary.paket_spicy_3, 0) +
-            COALESCE(sales_summary.paket_royale_prep, 0)
+            COALESCE(prep_summary.prep_western, 0) + 
+            COALESCE(prep_summary.prep_nusantara, 0) + 
+            COALESCE(prep_summary.prep_kids, 0) +
+            COALESCE(prep_summary.prep_happy_bites, 0) +
+            COALESCE(prep_summary.prep_royale, 0)
         ) AS total_prep_packages
 
     FROM employees e
@@ -82,23 +85,33 @@ $stmt = $conn->query("
         WHERE status = 'completed'
         GROUP BY employee_id
     ) as duty_summary ON e.id = duty_summary.employee_id
+    
+    -- Join ke sales_data untuk Data Penjualan
     LEFT JOIN (
         SELECT
             employee_id,
-            SUM(paket_sake) as paket_sake,
-            SUM(paket_anggur_merah) as paket_anggur_merah,
-            SUM(paket_tuak) as paket_tuak,
-            -- Logic Royale Sales: vip_person > 0 AND (spicy sums = 0)
-            SUM(CASE WHEN (paket_spicy_1 + paket_spicy_2 + paket_spicy_3) = 0 THEN paket_vip_person ELSE 0 END) as paket_royale_sales,
-
-            SUM(paket_spicy_1) as paket_spicy_1,
-            SUM(paket_spicy_2) as paket_spicy_2,
-            SUM(paket_spicy_3) as paket_spicy_3,
-            -- Logic Royale Prep: vip_person > 0 AND (sales sums = 0)
-            SUM(CASE WHEN (paket_sake + paket_anggur_merah + paket_tuak) = 0 THEN paket_vip_person ELSE 0 END) as paket_royale_prep
+            SUM(paket_western) as sales_western,
+            SUM(paket_nusantara) as sales_nusantara,
+            SUM(paket_kids) as sales_kids,
+            SUM(happy_bites) as sales_happy_bites,
+            SUM(paket_royale) as sales_royale
         FROM sales_data
         GROUP BY employee_id
     ) as sales_summary ON e.id = sales_summary.employee_id
+    
+    -- Join ke cooking_data untuk Data Masak
+    LEFT JOIN (
+        SELECT
+            employee_id,
+            SUM(paket_western) as prep_western,
+            SUM(paket_nusantara) as prep_nusantara,
+            SUM(paket_kids) as prep_kids,
+            SUM(happy_bites) as prep_happy_bites,
+            SUM(paket_royale) as prep_royale
+        FROM cooking_data
+        GROUP BY employee_id
+    ) as prep_summary ON e.id = prep_summary.employee_id
+    
     WHERE e.status = 'active'
     ORDER BY
         CASE e.role
@@ -128,35 +141,39 @@ $stmt->close();
 $total_western_sales = array_sum(array_column($employee_activities, 'paket_western_sales'));
 $total_nusantara_sales = array_sum(array_column($employee_activities, 'paket_nusantara_sales'));
 $total_kids_meal_sales = array_sum(array_column($employee_activities, 'paket_kids_meal_sales'));
-$total_royale_sales = array_sum(array_column($employee_activities, 'paket_royale_sales')); // NEW
-$total_penjualan_paket_keseluruhan = $total_western_sales + $total_nusantara_sales + $total_kids_meal_sales + $total_royale_sales;
+$total_happy_bites_sales = array_sum(array_column($employee_activities, 'happy_bites_sales')); // NEW
+$total_royale_sales = array_sum(array_column($employee_activities, 'paket_royale_sales')); 
+$total_penjualan_paket_keseluruhan = $total_western_sales + $total_nusantara_sales + $total_kids_meal_sales + $total_happy_bites_sales + $total_royale_sales;
 
 // Total Masak Paket
 $total_western_prep = array_sum(array_column($employee_activities, 'paket_western_prep'));
 $total_nusantara_prep = array_sum(array_column($employee_activities, 'paket_nusantara_prep'));
 $total_kids_meal_prep = array_sum(array_column($employee_activities, 'paket_kids_meal_prep'));
-$total_royale_prep = array_sum(array_column($employee_activities, 'paket_royale_prep')); // NEW
-$total_masak_paket_keseluruhan = $total_western_prep + $total_nusantara_prep + $total_kids_meal_prep + $total_royale_prep;
+$total_happy_bites_prep = array_sum(array_column($employee_activities, 'happy_bites_prep')); // NEW
+$total_royale_prep = array_sum(array_column($employee_activities, 'paket_royale_prep')); 
+$total_masak_paket_keseluruhan = $total_western_prep + $total_nusantara_prep + $total_kids_meal_prep + $total_happy_bites_prep + $total_royale_prep;
 
 
 // === START EXPORT LOGIC ===
 if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
     
-    // Ulangi query logic untuk mendapatkan data mentah ekspor (Sama dengan query utama)
+    // Gunakan query yang sama persis dengan di atas untuk konsistensi data
     $export_stmt_sql = "
         SELECT
             e.id, e.name, e.role, e.is_on_duty,
             COALESCE(duty_summary.total_duty_minutes, 0) as total_duty_minutes,
             
-            COALESCE(sales_summary.paket_sake, 0) as paket_western_sales,
-            COALESCE(sales_summary.paket_anggur_merah, 0) as paket_nusantara_sales,
-            COALESCE(sales_summary.paket_tuak, 0) as paket_kids_meal_sales,
-            COALESCE(sales_summary.paket_royale_sales, 0) as paket_royale_sales,
+            COALESCE(sales_summary.sales_western, 0) as paket_western_sales,
+            COALESCE(sales_summary.sales_nusantara, 0) as paket_nusantara_sales,
+            COALESCE(sales_summary.sales_kids, 0) as paket_kids_meal_sales,
+            COALESCE(sales_summary.sales_happy_bites, 0) as happy_bites_sales,
+            COALESCE(sales_summary.sales_royale, 0) as paket_royale_sales,
 
-            COALESCE(sales_summary.paket_spicy_1, 0) as paket_western_prep, 
-            COALESCE(sales_summary.paket_spicy_2, 0) as paket_nusantara_prep,  
-            COALESCE(sales_summary.paket_spicy_3, 0) as paket_kids_meal_prep,
-            COALESCE(sales_summary.paket_royale_prep, 0) as paket_royale_prep
+            COALESCE(prep_summary.prep_western, 0) as paket_western_prep, 
+            COALESCE(prep_summary.prep_nusantara, 0) as paket_nusantara_prep,  
+            COALESCE(prep_summary.prep_kids, 0) as paket_kids_meal_prep,
+            COALESCE(prep_summary.prep_happy_bites, 0) as happy_bites_prep,
+            COALESCE(prep_summary.prep_royale, 0) as paket_royale_prep
 
         FROM employees e
         LEFT JOIN (
@@ -165,17 +182,23 @@ if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
         LEFT JOIN (
             SELECT 
                 employee_id, 
-                SUM(paket_sake) as paket_sake, 
-                SUM(paket_anggur_merah) as paket_anggur_merah, 
-                SUM(paket_tuak) as paket_tuak, 
-                SUM(CASE WHEN (paket_spicy_1 + paket_spicy_2 + paket_spicy_3) = 0 THEN paket_vip_person ELSE 0 END) as paket_royale_sales,
-                
-                SUM(paket_spicy_1) as paket_spicy_1, 
-                SUM(paket_spicy_2) as paket_spicy_2, 
-                SUM(paket_spicy_3) as paket_spicy_3,
-                SUM(CASE WHEN (paket_sake + paket_anggur_merah + paket_tuak) = 0 THEN paket_vip_person ELSE 0 END) as paket_royale_prep
+                SUM(paket_western) as sales_western, 
+                SUM(paket_nusantara) as sales_nusantara, 
+                SUM(paket_kids) as sales_kids, 
+                SUM(happy_bites) as sales_happy_bites,
+                SUM(paket_royale) as sales_royale
             FROM sales_data GROUP BY employee_id
         ) as sales_summary ON e.id = sales_summary.employee_id
+        LEFT JOIN (
+            SELECT 
+                employee_id, 
+                SUM(paket_western) as prep_western, 
+                SUM(paket_nusantara) as prep_nusantara, 
+                SUM(paket_kids) as prep_kids, 
+                SUM(happy_bites) as prep_happy_bites,
+                SUM(paket_royale) as prep_royale
+            FROM cooking_data GROUP BY employee_id
+        ) as prep_summary ON e.id = prep_summary.employee_id
         WHERE e.status = 'active'
         ORDER BY e.name
     ";
@@ -186,7 +209,7 @@ if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
     $export_stmt->close();
 
     header('Content-Type: text/csv');
-    header('Content-Disposition: attachment; filename="aktivitas_anggota_royale_' . date('Ymd_His') . '.csv"');
+    header('Content-Disposition: attachment; filename="aktivitas_anggota_delicious_' . date('Ymd_His') . '.csv"');
     header('Cache-Control: no-cache, no-store, must-revalidate');
     header('Pragma: no-cache');
     header('Expires: 0');
@@ -194,7 +217,7 @@ if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
     $output = fopen('php://output', 'w');
     fprintf($output, chr(0xEF).chr(0xBB).chr(0xBF)); // UTF-8 BOM
 
-    // Definisikan CSV headers (Update with Royale)
+    // Definisikan CSV headers (Update with Happy Bites)
     $headers = [
         'Nama',
         'Jabatan',
@@ -204,19 +227,21 @@ if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
         'Western (Jual)', 
         'Nusantara (Jual)',
         'Kids Meal (Jual)',
+        'Happy Bites (Jual)',
         'Royale (Jual)',
         'Total Masak Paket',
         'Western (Masak)',
         'Nusantara (Masak)',
         'Kids Meal (Masak)',
+        'Happy Bites (Masak)',
         'Royale (Masak)',
     ];
     fputcsv($output, $headers);
 
     // Tulis baris data
     foreach ($export_data_raw as $row) {
-        $total_sales = $row['paket_western_sales'] + $row['paket_nusantara_sales'] + $row['paket_kids_meal_sales'] + $row['paket_royale_sales'];
-        $total_prep = $row['paket_western_prep'] + $row['paket_nusantara_prep'] + $row['paket_kids_meal_prep'] + $row['paket_royale_prep'];
+        $total_sales = $row['paket_western_sales'] + $row['paket_nusantara_sales'] + $row['paket_kids_meal_sales'] + $row['happy_bites_sales'] + $row['paket_royale_sales'];
+        $total_prep = $row['paket_western_prep'] + $row['paket_nusantara_prep'] + $row['paket_kids_meal_prep'] + $row['happy_bites_prep'] + $row['paket_royale_prep'];
         
         $data_row = [
             htmlspecialchars_decode($row['name']), 
@@ -227,11 +252,13 @@ if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
             $row['paket_western_sales'], 
             $row['paket_nusantara_sales'],
             $row['paket_kids_meal_sales'],
+            $row['happy_bites_sales'],
             $row['paket_royale_sales'],
             $total_prep,
             $row['paket_western_prep'],
             $row['paket_nusantara_prep'], 
             $row['paket_kids_meal_prep'], 
+            $row['happy_bites_prep'],
             $row['paket_royale_prep'], 
         ];
         fputcsv($output, $data_row);
@@ -293,7 +320,8 @@ if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
                         <p class="stat-breakdown" style="font-size: 0.9em; margin-top: 0.5rem; text-align: left;">
                             <span>Western: <strong><?= $total_western_sales ?></strong></span>
                             <span>Nusantara: <strong><?= $total_nusantara_sales ?></strong></span>
-                            <span>Kids Meal: <strong><?= $total_kids_meal_sales ?></strong></span>
+                            <span>Kids: <strong><?= $total_kids_meal_sales ?></strong></span>
+                            <span>Happy: <strong><?= $total_happy_bites_sales ?></strong></span>
                             <span>Royale: <strong><?= $total_royale_sales ?></strong></span>
                         </p>
                     </div>
@@ -308,7 +336,8 @@ if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
                         <p class="stat-breakdown" style="font-size: 0.9em; margin-top: 0.5rem; text-align: left;">
                             <span>Western: <strong><?= $total_western_prep ?></strong></span>
                             <span>Nusantara: <strong><?= $total_nusantara_prep ?></strong></span>
-                            <span>Kids Meal: <strong><?= $total_kids_meal_prep ?></strong></span>
+                            <span>Kids: <strong><?= $total_kids_meal_prep ?></strong></span>
+                            <span>Happy: <strong><?= $total_happy_bites_prep ?></strong></span>
                             <span>Royale: <strong><?= $total_royale_prep ?></strong></span>
                         </p>
                     </div>
@@ -338,19 +367,23 @@ if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
                                     <th>Status</th>
                                     <th>Total Jam Kerja</th>
                                     <th>Total Jual</th> 
-                                    <th>Jual (Western)</th>
-                                    <th>Jual (Nusantara)</th>
-                                    <th>Jual (Kids Meal)</th>
-                                    <th>Jual (Royale)</th> <th>Total Masak</th> 
-                                    <th>Masak (Western)</th>
-                                    <th>Masak (Nusantara)</th>
-                                    <th>Masak (Kids Meal)</th>
-                                    <th>Masak (Royale)</th> </tr>
+                                    <th>Jual (West)</th>
+                                    <th>Jual (Nusa)</th>
+                                    <th>Jual (Kids)</th>
+                                    <th>Jual (Happy)</th>
+                                    <th>Jual (Royale)</th> 
+                                    <th>Total Masak</th> 
+                                    <th>Masak (West)</th>
+                                    <th>Masak (Nusa)</th>
+                                    <th>Masak (Kids)</th>
+                                    <th>Masak (Happy)</th>
+                                    <th>Masak (Royale)</th> 
+                                </tr>
                             </thead>
                             <tbody>
                                 <?php if (empty($employee_activities)): ?>
                                     <tr>
-                                        <td colspan="14" class="no-data">Belum ada data aktivitas anggota.</td>
+                                        <td colspan="16" class="no-data">Belum ada data aktivitas anggota.</td>
                                     </tr>
                                 <?php else: ?>
                                     <?php foreach ($employee_activities as $activity): ?>
@@ -381,17 +414,19 @@ if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
                                         <td data-label="Total Jual">
                                             <strong><?= $activity['total_sales_packages'] ?></strong>
                                         </td>
-                                        <td data-label="Jual (Western)"><?= $activity['paket_western_sales'] ?></td>
-                                        <td data-label="Jual (Nusantara)"><?= $activity['paket_nusantara_sales'] ?></td>
-                                        <td data-label="Jual (Kids Meal)"><?= $activity['paket_kids_meal_sales'] ?></td>
+                                        <td data-label="Jual (West)"><?= $activity['paket_western_sales'] ?></td>
+                                        <td data-label="Jual (Nusa)"><?= $activity['paket_nusantara_sales'] ?></td>
+                                        <td data-label="Jual (Kids)"><?= $activity['paket_kids_meal_sales'] ?></td>
+                                        <td data-label="Jual (Happy)"><?= $activity['happy_bites_sales'] ?></td>
                                         <td data-label="Jual (Royale)"><?= $activity['paket_royale_sales'] ?></td>
                                         
                                         <td data-label="Total Masak">
                                             <strong><?= $activity['total_prep_packages'] ?></strong>
                                         </td>
-                                        <td data-label="Masak (Western)"><?= $activity['paket_western_prep'] ?></td>
-                                        <td data-label="Masak (Nusantara)"><?= $activity['paket_nusantara_prep'] ?></td>
-                                        <td data-label="Masak (Kids Meal)"><?= $activity['paket_kids_meal_prep'] ?></td>
+                                        <td data-label="Masak (West)"><?= $activity['paket_western_prep'] ?></td>
+                                        <td data-label="Masak (Nusa)"><?= $activity['paket_nusantara_prep'] ?></td>
+                                        <td data-label="Masak (Kids)"><?= $activity['paket_kids_meal_prep'] ?></td>
+                                        <td data-label="Masak (Happy)"><?= $activity['happy_bites_prep'] ?></td>
                                         <td data-label="Masak (Royale)"><?= $activity['paket_royale_prep'] ?></td>
                                     </tr>
                                     <?php endforeach; ?>

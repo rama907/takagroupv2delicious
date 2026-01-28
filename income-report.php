@@ -25,6 +25,7 @@ $TARGET_SALES_STAFF = 60;      // Target Staff > 60
 $total_payroll_expenditure = 0;
 
 // Query diperbarui: Mengambil data Duty DAN Sales per karyawan
+// UPDATE: Kolom disesuaikan dengan struktur sales_data terbaru
 $employees_raw_data_payroll = $conn->query("
     SELECT e.id, e.name, e.role,
            COALESCE(duty_summary.total_duty_minutes, 0) as total_duty_minutes,
@@ -36,11 +37,10 @@ $employees_raw_data_payroll = $conn->query("
     ) as duty_summary ON e.id = duty_summary.employee_id
     LEFT JOIN (
         SELECT employee_id,
-            -- Menjumlahkan semua paket penjualan (termasuk Royale/vip_person)
-            (SUM(paket_sake) + SUM(paket_anggur_merah) + SUM(paket_tuak) + SUM(paket_soju) + SUM(paket_vip_person)) as total_sales
+            -- Menjumlahkan semua paket penjualan (Struktur Baru)
+            (SUM(paket_western) + SUM(paket_nusantara) + SUM(paket_kids) + SUM(happy_bites) + SUM(paket_royale)) as total_sales
         FROM sales_data
-        -- Filter PENTING: Hanya ambil data yang BUKAN log masak (spicy = 0)
-        WHERE (paket_spicy_1 + paket_spicy_2 + paket_spicy_3) = 0
+        -- Filter spicy dihapus karena tabel sudah terpisah
         GROUP BY employee_id
     ) as sales_summary ON e.id = sales_summary.employee_id
     WHERE e.status = 'active'
@@ -75,9 +75,11 @@ if ($employees_raw_data_payroll) {
 }
 
 // === 2. PENETAPAN HARGA & PEMBAGIAN HASIL (80/20) ===
+// Harga Paket (Pastikan sesuai dengan kebijakan resto)
 $price_western = 2300;
 $price_nusantara = 2100;
 $price_kids_meal = 2000;
+$price_happy_bites = 1500; // Harga Baru untuk Happy Bites
 $price_royale = 2300; 
 
 $company_ratio = 0.8; 
@@ -88,15 +90,15 @@ $company_share_total = 0;
 $employee_commission_total = 0; 
 
 // Query Total Pendapatan (Revenue)
+// UPDATE: Kolom disesuaikan
 $stmt = $conn->prepare("
     SELECT
-        COALESCE(SUM(paket_sake), 0) as sum_western,
-        COALESCE(SUM(paket_anggur_merah), 0) as sum_nusantara,
-        COALESCE(SUM(paket_tuak), 0) as sum_kids_meal,
-        COALESCE(SUM(paket_vip_person), 0) as sum_royale
+        COALESCE(SUM(paket_western), 0) as sum_western,
+        COALESCE(SUM(paket_nusantara), 0) as sum_nusantara,
+        COALESCE(SUM(paket_kids), 0) as sum_kids_meal,
+        COALESCE(SUM(happy_bites), 0) as sum_happy_bites,
+        COALESCE(SUM(paket_royale), 0) as sum_royale
     FROM sales_data
-    -- Filter PENTING: Hanya ambil data yang BUKAN log masak
-    WHERE (paket_spicy_1 + paket_spicy_2 + paket_spicy_3) = 0
 ");
 
 if ($stmt) {
@@ -108,6 +110,7 @@ if ($stmt) {
         $overall_total_income = ($result['sum_western'] * $price_western) + 
                                 ($result['sum_nusantara'] * $price_nusantara) + 
                                 ($result['sum_kids_meal'] * $price_kids_meal) +
+                                ($result['sum_happy_bites'] * $price_happy_bites) +
                                 ($result['sum_royale'] * $price_royale);
         
         $company_share_total = $overall_total_income * $company_ratio;
@@ -125,16 +128,17 @@ $start_of_week = clone $today;
 if ($start_of_week->format('N') != 1) $start_of_week->modify('last Monday');
 $end_of_week = clone $start_of_week; $end_of_week->modify('+6 days');
 
+// UPDATE: Kolom disesuaikan
 $stmt_daily = $conn->prepare("
     SELECT 
         sd.date, 
-        SUM(sd.paket_sake) as sw, 
-        SUM(sd.paket_anggur_merah) as sn, 
-        SUM(sd.paket_tuak) as sk,
-        SUM(sd.paket_vip_person) as sr
+        SUM(sd.paket_western) as sw, 
+        SUM(sd.paket_nusantara) as sn, 
+        SUM(sd.paket_kids) as sk,
+        SUM(sd.happy_bites) as sh,
+        SUM(sd.paket_royale) as sr
     FROM sales_data sd 
     WHERE sd.date BETWEEN ? AND ? 
-    AND (sd.paket_spicy_1 + sd.paket_spicy_2 + sd.paket_spicy_3) = 0
     GROUP BY sd.date
 ");
 
@@ -146,6 +150,7 @@ if ($stmt_daily) {
         $omset = ($r['sw'] * $price_western) + 
                  ($r['sn'] * $price_nusantara) + 
                  ($r['sk'] * $price_kids_meal) +
+                 ($r['sh'] * $price_happy_bites) +
                  ($r['sr'] * $price_royale);
         $chart_data_from_db[$r['date']] = $omset * $company_ratio;
     }
@@ -161,16 +166,17 @@ for ($i = 0; $i < 7; $i++) {
 $omset_logs = [];
 $member_summary = []; 
 
+// UPDATE: Kolom disesuaikan dan Happy Bites dimasukkan
 $stmt_logs = $conn->query("
     SELECT sd.date, sd.input_time, e.name as employee_name,
         (
-            (sd.paket_sake * {$price_western}) + 
-            (sd.paket_anggur_merah * {$price_nusantara}) + 
-            (sd.paket_tuak * {$price_kids_meal}) +
-            (sd.paket_vip_person * {$price_royale})
+            (sd.paket_western * {$price_western}) + 
+            (sd.paket_nusantara * {$price_nusantara}) + 
+            (sd.paket_kids * {$price_kids_meal}) +
+            (sd.happy_bites * {$price_happy_bites}) +
+            (sd.paket_royale * {$price_royale})
         ) as total_val
     FROM sales_data sd JOIN employees e ON sd.employee_id = e.id
-    WHERE (sd.paket_spicy_1 + sd.paket_spicy_2 + sd.paket_spicy_3) = 0
     HAVING total_val > 0
     ORDER BY input_time DESC
 ");
@@ -195,7 +201,10 @@ if ($stmt_logs) {
     }
 }
 
-function formatRupiah($amount) { return 'Rp ' . number_format($amount, 0, ',', '.'); }
+// MODIFIED: Changed to Dollar format
+function formatCurrency($amount) { 
+    return '$ ' . number_format($amount, 0, '.', ','); 
+}
 ?>
 
 <!DOCTYPE html>
@@ -238,27 +247,27 @@ function formatRupiah($amount) { return 'Rp ' . number_format($amount, 0, ',', '
             <div class="income-report-grid">
                 <div class="income-card">
                     <h4>🏢 Bagian Perusahaan (80%)</h4>
-                    <p class="value" style="color: #3b82f6;"><?= formatRupiah($company_share_total) ?></p>
+                    <p class="value" style="color: #3b82f6;"><?= formatCurrency($company_share_total) ?></p>
                 </div>
                 <div class="income-card">
                     <h4>🤝 Total Komisi Anggota (20%)</h4>
-                    <p class="value" style="color: #f59e0b;"><?= formatRupiah($employee_commission_total) ?></p>
+                    <p class="value" style="color: #f59e0b;"><?= formatCurrency($employee_commission_total) ?></p>
                 </div>
                 <div class="income-card card-main">
                     <h4>💰 TOTAL OMSET PENJUALAN (100%)</h4>
-                    <p class="value" style="color: var(--primary-color);"><?= formatRupiah($overall_total_income) ?></p>
+                    <p class="value" style="color: var(--primary-color);"><?= formatCurrency($overall_total_income) ?></p>
                 </div>
             </div>
 
             <div class="income-report-grid">
                 <div class="income-card card-salary">
                     <h4>💵 Total Pengeluaran Gaji</h4>
-                    <p class="value" style="color: var(--danger-color);"><?= formatRupiah($total_payroll_expenditure) ?></p>
+                    <p class="value" style="color: var(--danger-color);"><?= formatCurrency($total_payroll_expenditure) ?></p>
                     <p style="font-size: 0.75rem; color: var(--text-muted);">Gaji Duty ($200/jam) + Bonus Sales ($200/paket)</p>
                 </div>
                 <div class="income-card card-net">
                     <h4>📈 Profit Bersih (Net)</h4>
-                    <p class="value" style="color: var(--success-color);"><?= formatRupiah($net_income) ?></p>
+                    <p class="value" style="color: var(--success-color);"><?= formatCurrency($net_income) ?></p>
                     <p style="font-size: 0.75rem; color: var(--text-muted);">(80% Omset) - (Pengeluaran Gaji)</p>
                 </div>
             </div>
@@ -285,8 +294,8 @@ function formatRupiah($amount) { return 'Rp ' . number_format($amount, 0, ',', '
                             <tr>
                                 <td><strong><?= htmlspecialchars($name) ?></strong></td>
                                 <td><?= $data['total_transaksi'] ?> Transaksi</td>
-                                <td><?= formatRupiah($data['total_omset']) ?></td>
-                                <td><span class="badge-komisi"><?= formatRupiah($data['total_komisi']) ?></span></td>
+                                <td><?= formatCurrency($data['total_omset']) ?></td>
+                                <td><span class="badge-komisi"><?= formatCurrency($data['total_komisi']) ?></span></td>
                             </tr>
                             <?php endforeach; ?>
                         </tbody>
@@ -312,9 +321,9 @@ function formatRupiah($amount) { return 'Rp ' . number_format($amount, 0, ',', '
                             <tr>
                                 <td><?= $log['date_time'] ?></td>
                                 <td><?= htmlspecialchars($log['employee_name']) ?></td>
-                                <td><?= formatRupiah($log['omset_kotor']) ?></td>
-                                <td><span class="badge-perusahaan"><?= formatRupiah($log['bagian_perusahaan']) ?></span></td>
-                                <td><span class="badge-komisi"><?= formatRupiah($log['bagian_karyawan']) ?></span></td>
+                                <td><?= formatCurrency($log['omset_kotor']) ?></td>
+                                <td><span class="badge-perusahaan"><?= formatCurrency($log['bagian_perusahaan']) ?></span></td>
+                                <td><span class="badge-komisi"><?= formatCurrency($log['bagian_karyawan']) ?></span></td>
                             </tr>
                             <?php endforeach; ?>
                         </tbody>
@@ -333,7 +342,7 @@ function formatRupiah($amount) { return 'Rp ' . number_format($amount, 0, ',', '
                 data: {
                     labels: <?= json_encode($chart_labels) ?>,
                     datasets: [{
-                        label: 'Masuk Kas (Rp)',
+                        label: 'Masuk Kas ($)',
                         data: <?= json_encode($chart_data_revenue) ?>,
                         backgroundColor: 'rgba(59, 130, 246, 0.7)',
                         borderColor: '#2563eb',

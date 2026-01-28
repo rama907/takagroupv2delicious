@@ -1,8 +1,7 @@
 <?php
 require_once 'config.php';
 
-// Batasi akses: Wakil Direktur ke atas
-if (!isLoggedIn() || !hasRole(['ceo', 'direktur', 'wakil_direktur'])) {
+if (!isLoggedIn() || !hasRole(['ceo', 'direktur', 'wakil_direktur', 'manager'])) {
     header('Location: dashboard.php');
     exit;
 }
@@ -10,110 +9,144 @@ if (!isLoggedIn() || !hasRole(['ceo', 'direktur', 'wakil_direktur'])) {
 $user = getCurrentUser();
 $pending_requests_count = getPendingRequestCount();
 
-function formatRupiah($amount) {
-    return 'Rp ' . number_format($amount, 0, ',', '.') . '';
+// --- Helper Functions ---
+function roundToNearestHour($minutes) {
+    return round($minutes / 60);
 }
 
-// Inisialisasi variabel filter dan sorting
-$filter_role = $_GET['role'] ?? '';
-$filter_date = $_GET['backup_date'] ?? '';
-$sort_by = $_GET['sort_by'] ?? 'week_start';
-$sort_order = $_GET['sort_order'] ?? 'DESC';
+function formatCurrency($amount) { 
+    return '$ ' . number_format($amount, 0, '.', ','); 
+}
 
-// Pastikan sort_order valid
-$sort_order = strtoupper($sort_order) === 'ASC' ? 'ASC' : 'DESC';
+// --- KONFIGURASI GAJI (SAMA DENGAN SALARY-RECAP) ---
+$RATE_PER_JAM = 200;       
+$RATE_BONUS_PAKET = 200;   
+$MIN_DUTY_HOURS_REQUIRED = 15; 
+$TARGET_SALES_MAGANG = 35;     
+$TARGET_SALES_STAFF = 60;      
 
-// Kumpulan role yang mungkin (asumsi diambil dari suatu fungsi atau database)
-// Menggunakan array statis untuk contoh
-$available_roles = [
-    'ceo' => 'CEO',
-    'direktur' => 'Direktur',
-    'wakil_direktur' => 'Wakil Direktur',
-    'manager' => 'Manajer',
-    'chef' => 'Chef',
-    'barista' => 'Barista',
-    'karyawan' => 'Karyawan',
-    'magang' => 'Magang',
-    // Tambahkan role lain yang relevan
-];
+// --- Filter Tanggal Mingguan ---
+// Default: Senin minggu ini s/d Minggu minggu ini
+$today = new DateTime();
+$default_start = clone $today;
+if ($today->format('N') != 1) { 
+    $default_start->modify('last Monday'); 
+}
+$default_end = clone $default_start;
+$default_end->modify('+6 days');
 
-// Ambil semua data backup
-// Siapkan query dengan filtering dan sorting
-$sql = "
-    SELECT 
-        w.*,
-        e.role as employee_role
-    FROM weekly_salary_backup w
-    JOIN employees e ON w.employee_id = e.id
-    WHERE 1=1
+$start_date = $_GET['start_date'] ?? $default_start->format('Y-m-d');
+$end_date = $_GET['end_date'] ?? $default_end->format('Y-m-d');
+
+// --- Query Data Mingguan ---
+// Mengambil data Duty dan Sales yang TERJADI DALAM RENTANG TANGGAL
+$query = "
+    SELECT e.id, e.name, e.role,
+           COALESCE(duty_summary.total_duty_minutes, 0) as total_duty_minutes,
+           COALESCE(sales_summary.total_sales, 0) as total_sales_packages
+    FROM employees e
+    -- 1. Join Log Duty Mingguan
+    LEFT JOIN (
+        SELECT employee_id, SUM(duration_minutes) as total_duty_minutes
+        FROM duty_logs 
+        WHERE status = 'completed' 
+        AND DATE(duty_start) BETWEEN ? AND ?
+        GROUP BY employee_id
+    ) as duty_summary ON e.id = duty_summary.employee_id
+    -- 2. Join Sales Data Mingguan (UPDATE: Struktur Baru + Happy Bites)
+    LEFT JOIN (
+        SELECT employee_id,
+            (SUM(paket_western) + SUM(paket_nusantara) + SUM(paket_kids) + SUM(happy_bites) + SUM(paket_royale)) as total_sales
+        FROM sales_data
+        WHERE date BETWEEN ? AND ?
+        GROUP BY employee_id
+    ) as sales_summary ON e.id = sales_summary.employee_id
+    WHERE e.status = 'active'
+    ORDER BY FIELD(e.role, 'ceo', 'direktur', 'wakil_direktur', 'manager', 'chef', 'waiters', 'karyawan', 'magang'), e.name
 ";
 
-$params = [];
-$types = '';
+$stmt = $conn->prepare($query);
+$stmt->bind_param("ssss", $start_date, $end_date, $start_date, $end_date);
+$stmt->execute();
+$result = $stmt->get_result();
+$employees_raw = $result->fetch_all(MYSQLI_ASSOC);
+$stmt->close();
 
-// Filter Jabatan (Role)
-if (!empty($filter_role)) {
-    $sql .= " AND e.role = ?";
-    $types .= 's';
-    $params[] = $filter_role;
-}
+// --- Proses Perhitungan ---
+$report_data = [];
+$total_payout = 0;
 
-// Filter Tanggal Backup
-if (!empty($filter_date)) {
-    // Cari data yang di-backup pada tanggal tertentu
-    $sql .= " AND DATE(w.backup_date) = ?";
-    $types .= 's';
-    $params[] = $filter_date;
-}
+foreach ($employees_raw as $emp) {
+    $role = $emp['role'];
+    $duty_minutes = $emp['total_duty_minutes'];
+    $sales_count = (int)$emp['total_sales_packages'];
+    
+    $rounded_hours = roundToNearestHour($duty_minutes);
+    
+    // Hitung Gaji
+    $gaji_duty = 0;
+    $bonus_sales = 0;
+    $keterangan = [];
+    $is_qualified = true;
 
-// Sorting
-// Pastikan kolom sorting valid untuk menghindari SQL Injection
-$allowed_sorts = ['week_start', 'employee_name', 'employee_role', 'total_net_salary', 'backup_date'];
-if (in_array($sort_by, $allowed_sorts)) {
-    // Kolom sorting diambil dari variabel
-    $sql .= " ORDER BY {$sort_by} {$sort_order}, w.week_start DESC, w.employee_name ASC";
-} else {
-    // Default sorting
-    $sql .= " ORDER BY w.week_start DESC, w.employee_name ASC";
-}
-
-
-// Eksekusi query
-if (!empty($params)) {
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param($types, ...$params);
-    $stmt->execute();
-    $backup_result = $stmt->get_result();
-    $backup_data = $backup_result->fetch_all(MYSQLI_ASSOC);
-    $stmt->close();
-} else {
-    $backup_data = $conn->query($sql)->fetch_all(MYSQLI_ASSOC);
-}
-
-
-// Fungsi untuk membantu menentukan class sorting
-function getSortClass($column, $current_sort_by, $current_sort_order) {
-    if ($column === $current_sort_by) {
-        return $current_sort_order === 'ASC' ? 'sorted-asc' : 'sorted-desc';
+    // 1. Cek Jam Duty
+    if ($rounded_hours >= $MIN_DUTY_HOURS_REQUIRED) {
+        $gaji_duty = $rounded_hours * $RATE_PER_JAM;
+    } else {
+        // Jika jam kurang, apakah gaji hangus? (Sesuai salary-recap: Hangus)
+        $gaji_duty = 0; 
+        if ($rounded_hours > 0) {
+            $keterangan[] = "Jam < $MIN_DUTY_HOURS_REQUIRED";
+            $is_qualified = false;
+        }
     }
-    return '';
-}
 
-// Fungsi untuk mendapatkan URL sorting baru
-function getSortUrl($column, $current_sort_by, $current_sort_order, $filter_role, $filter_date) {
-    $new_order = 'ASC';
-    if ($column === $current_sort_by && $current_sort_order === 'ASC') {
-        $new_order = 'DESC';
+    // 2. Cek Bonus Sales
+    $target = ($role === 'magang') ? $TARGET_SALES_MAGANG : $TARGET_SALES_STAFF;
+    if ($sales_count > $target) {
+        $bonus_sales = $sales_count * $RATE_BONUS_PAKET;
+        $keterangan[] = "Bonus OK";
     }
-    $query = http_build_query([
-        'role' => $filter_role,
-        'backup_date' => $filter_date,
-        'sort_by' => $column,
-        'sort_order' => $new_order
-    ]);
-    return '?' . $query;
+
+    $total_individual = $gaji_duty + $bonus_sales;
+    $total_payout += $total_individual;
+
+    $report_data[] = [
+        'name' => $emp['name'],
+        'role' => $emp['role'],
+        'hours_raw' => $duty_minutes / 60,
+        'hours_rounded' => $rounded_hours,
+        'sales_count' => $sales_count,
+        'salary_duty' => $gaji_duty,
+        'salary_bonus' => $bonus_sales,
+        'total' => $total_individual,
+        'note' => implode(", ", $keterangan)
+    ];
 }
 
+// === EXPORT LOGIC ===
+if (isset($_GET['export']) && $_GET['export'] == 'csv') {
+    header('Content-Type: text/csv');
+    header('Content-Disposition: attachment; filename="rekap_mingguan_' . $start_date . '_to_' . $end_date . '.csv"');
+    
+    $out = fopen('php://output', 'w');
+    fputcsv($out, ['Nama', 'Jabatan', 'Jam Duty (Bulat)', 'Total Sales', 'Gaji Duty ($)', 'Bonus Sales ($)', 'Total Terima ($)', 'Catatan']);
+    
+    foreach ($report_data as $row) {
+        fputcsv($out, [
+            $row['name'],
+            getRoleDisplayName($row['role']),
+            $row['hours_rounded'],
+            $row['sales_count'],
+            number_format($row['salary_duty'], 0, '.', ','),
+            number_format($row['salary_bonus'], 0, '.', ','),
+            number_format($row['total'], 0, '.', ','),
+            $row['note']
+        ]);
+    }
+    fclose($out);
+    exit;
+}
 ?>
 
 <!DOCTYPE html>
@@ -123,82 +156,8 @@ function getSortUrl($column, $current_sort_by, $current_sort_order, $filter_role
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Rekap Gaji Mingguan - Delicious</title>
     <link rel="icon" href="LOGO_WOT.png" type="image/png">
+    <link rel="shortcut icon" href="favicon.ico" type="image/x-icon">
     <link rel="stylesheet" href="style.css">
-    <style>
-        .paid-status {
-            font-weight: bold;
-            padding: 4px 8px;
-            border-radius: 4px;
-            display: inline-block;
-        }
-        .status-Pending { background-color: #ffcc00; color: #333; }
-        .status-Paid { background-color: #4CAF50; color: white; }
-        .status-Error { background-color: #f44336; color: white; }
-        .salary-table th, .salary-table td {
-            white-space: nowrap;
-        }
-        .duty-time {
-            color: var(--primary-color);
-            font-weight: 600;
-        }
-        /* Style untuk sorting */
-        .sortable {
-            cursor: pointer;
-            position: relative;
-        }
-        .sortable:hover {
-            color: var(--primary-color);
-        }
-        .sortable::after {
-            content: ' ';
-            font-size: 0.7em;
-            margin-left: 5px;
-            opacity: 0.3;
-        }
-        .sortable.sorted-asc::after {
-            content: '▲';
-            opacity: 1;
-            color: var(--primary-color);
-        }
-        .sortable.sorted-desc::after {
-            content: '▼';
-            opacity: 1;
-            color: var(--primary-color);
-        }
-        /* Style untuk Filter Form */
-        .filter-form {
-            display: flex;
-            gap: var(--spacing-md);
-            margin-bottom: var(--spacing-lg);
-            flex-wrap: wrap;
-            align-items: flex-end;
-        }
-        .filter-group {
-            display: flex;
-            flex-direction: column;
-        }
-        .filter-group label {
-            margin-bottom: var(--spacing-sm);
-            font-weight: 600;
-        }
-        .filter-form select, .filter-form input[type="date"], .filter-form button {
-            padding: var(--spacing-sm) var(--spacing-md);
-            border: 1px solid var(--border-color);
-            border-radius: var(--border-radius);
-            background-color: var(--card-bg);
-            color: var(--text-color);
-        }
-        .filter-form button {
-            background-color: var(--primary-color);
-            color: white;
-            cursor: pointer;
-            border: none;
-            transition: background-color 0.2s;
-        }
-        .filter-form button:hover {
-            background-color: var(--primary-color-dark);
-        }
-    </style>
 </head>
 <body>
     <div class="dashboard-container">
@@ -208,121 +167,112 @@ function getSortUrl($column, $current_sort_by, $current_sort_order, $filter_role
         <main class="main-content">
             <div class="page-header">
                 <h1>
-                    <span class="page-icon">🐀򄸏</span>
+                    <span class="page-icon">📅</span>
                     Rekap Gaji Mingguan
                 </h1>
-                <p>Data backup nominal gaji anggota per minggu (diambil setiap Senin pukul 12.00).</p>
-                <div class="info-message" style="margin-top: var(--spacing-lg);">
-                    <strong>Jadwal Backup Otomatis:</strong> Setiap Hari Senin, Pukul 12:00 WIB.
+                <p>Periode: <strong><?= date('d M Y', strtotime($start_date)) ?></strong> s/d <strong><?= date('d M Y', strtotime($end_date)) ?></strong></p>
+            </div>
+
+            <div class="card full-width" style="margin-bottom: 20px;">
+                <div class="card-content">
+                    <form method="GET" style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label>Mulai Tanggal</label>
+                            <input type="date" name="start_date" value="<?= $start_date ?>" class="form-input">
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label>Sampai Tanggal</label>
+                            <input type="date" name="end_date" value="<?= $end_date ?>" class="form-input">
+                        </div>
+                        <button type="submit" class="btn btn-primary">Tampilkan</button>
+                        <a href="weekly-salary-recap.php?start_date=<?= $start_date ?>&end_date=<?= $end_date ?>&export=csv" class="btn btn-success">
+                            <span class="btn-icon">⬇️</span> Unduh CSV
+                        </a>
+                    </form>
+                </div>
+            </div>
+
+            <div class="summary-stats-container">
+                <div class="summary-card">
+                    <div class="summary-icon" style="color: var(--success-color);">💵</div>
+                    <div class="summary-content">
+                        <h4>Estimasi Pengeluaran (Periode Ini)</h4>
+                        <p class="summary-value"><?= formatCurrency($total_payout) ?></p>
+                    </div>
+                </div>
+                <div class="summary-card">
+                    <div class="summary-icon" style="color: var(--info-color);">📅</div>
+                    <div class="summary-content">
+                        <h4>Durasi</h4>
+                        <p class="summary-value">
+                            <?php 
+                                $diff = (new DateTime($start_date))->diff(new DateTime($end_date));
+                                echo ($diff->days + 1) . " Hari";
+                            ?>
+                        </p>
+                    </div>
                 </div>
             </div>
 
             <div class="card full-width">
                 <div class="card-header">
-                    <h3>Riwayat Backup Gaji</h3>
+                    <h3>Rincian Per Anggota</h3>
                 </div>
                 <div class="card-content">
-                    <form method="GET" class="filter-form">
-                        <div class="filter-group">
-                            <label for="role_filter">Filter Jabatan</label>
-                            <select name="role" id="role_filter">
-                                <option value="">-- Semua Jabatan --</option>
-                                <?php foreach ($available_roles as $role_key => $role_name): ?>
-                                    <option value="<?= $role_key ?>" <?= $filter_role === $role_key ? 'selected' : '' ?>>
-                                        <?= htmlspecialchars($role_name) ?>
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
-                        </div>
-                        <div class="filter-group">
-                            <label for="backup_date_filter">Filter Tanggal Backup</label>
-                            <input type="date" name="backup_date" id="backup_date_filter" value="<?= htmlspecialchars($filter_date) ?>">
-                        </div>
-                        <div class="filter-group">
-                            <button type="submit">Terapkan Filter</button>
-                        </div>
-                        <?php if (!empty($filter_role) || !empty($filter_date)): ?>
-                            <div class="filter-group">
-                                <a href="weekly-salary-recap.php" class="button secondary-button" style="align-self: flex-end;">Reset Filter</a>
-                            </div>
-                        <?php endif; ?>
-                        <?php if (in_array($sort_by, $allowed_sorts) && !empty($sort_by)): ?>
-                            <input type="hidden" name="sort_by" value="<?= htmlspecialchars($sort_by) ?>">
-                            <input type="hidden" name="sort_order" value="<?= htmlspecialchars($sort_order) ?>">
-                        <?php endif; ?>
-                    </form>
-
-                    <?php if (empty($backup_data)): ?>
-                        <div class="no-data">Belum ada data gaji mingguan yang di-backup sesuai kriteria filter.</div>
-                    <?php else: ?>
-                        <div class="responsive-table-container">
-                            <table class="activities-table-improved salary-table">
-                                <thead>
+                    <div class="responsive-table-container">
+                        <table class="activities-table-improved">
+                            <thead>
+                                <tr>
+                                    <th>Nama</th>
+                                    <th>Jabatan</th>
+                                    <th>Jam Duty</th>
+                                    <th>Sales (Paket)</th>
+                                    <th>Gaji Duty</th>
+                                    <th>Bonus Sales</th>
+                                    <th>Total ($)</th>
+                                    <th>Catatan</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php if (empty($report_data)): ?>
+                                    <tr><td colspan="8" class="no-data">Tidak ada data pada periode ini.</td></tr>
+                                <?php else: ?>
+                                    <?php foreach ($report_data as $row): ?>
                                     <tr>
-                                        <th class="sortable <?= getSortClass('week_start', $sort_by, $sort_order) ?>">
-                                            <a href="<?= getSortUrl('week_start', $sort_by, $sort_order, $filter_role, $filter_date) ?>">
-                                                Periode Minggu
-                                            </a>
-                                        </th>
-                                        <th class="sortable <?= getSortClass('employee_name', $sort_by, $sort_order) ?>">
-                                            <a href="<?= getSortUrl('employee_name', $sort_by, $sort_order, $filter_role, $filter_date) ?>">
-                                                Nama Anggota
-                                            </a>
-                                        </th>
-                                        <th class="sortable <?= getSortClass('employee_role', $sort_by, $sort_order) ?>">
-                                            <a href="<?= getSortUrl('employee_role', $sort_by, $sort_order, $filter_role, $filter_date) ?>">
-                                                Jabatan
-                                            </a>
-                                        </th>
-                                        <th>Jam Duty (Asli)</th>
-                                        <th>Jam Duty (Bulat)</th>
-                                        <th>Base Gaji (100%)</th>
-                                        <th class="sortable <?= getSortClass('total_net_salary', $sort_by, $sort_order) ?>">
-                                            <a href="<?= getSortUrl('total_net_salary', $sort_by, $sort_order, $filter_role, $filter_date) ?>">
-                                                Total Gaji (Net)
-                                            </a>
-                                        </th>
-                                        <th>Status Bayar</th>
-                                        <th class="sortable <?= getSortClass('backup_date', $sort_by, $sort_order) ?>">
-                                            <a href="<?= getSortUrl('backup_date', $sort_by, $sort_order, $filter_role, $filter_date) ?>">
-                                                Tanggal Backup
-                                            </a>
-                                        </th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <?php foreach ($backup_data as $data): ?>
-                                    <tr>
-                                        <td data-label="Periode Minggu">
-                                            <?= date('d/m', strtotime($data['week_start'])) ?> - <?= date('d/m/Y', strtotime($data['week_end'])) ?>
+                                        <td>
+                                            <strong><?= htmlspecialchars($row['name']) ?></strong>
                                         </td>
-                                        <td data-label="Nama Anggota"><?= htmlspecialchars($data['employee_name']) ?></td>
-                                        <td data-label="Jabatan"><?= getRoleDisplayName($data['employee_role']) ?></td>
-                                        <td data-label="Jam Duty (Asli)">
-                                            <?= formatDuration($data['duty_minutes_actual']) ?>
-                                        </td>
-                                        <td data-label="Jam Duty (Bulat)" class="duty-time">
-                                            <?= formatDuration($data['duty_minutes_rounded']) ?>
-                                        </td>
-                                        <td data-label="Base Gaji (100%)"><?= formatRupiah($data['base_salary_nominal']) ?></td>
-                                        <td data-label="Total Gaji (Net)"><strong><?= formatRupiah($data['total_net_salary']) ?></strong></td>
-                                        <td data-label="Status Bayar">
-                                            <span class="paid-status status-<?= htmlspecialchars($data['payment_status']) ?>">
-                                                <?= htmlspecialchars($data['payment_status']) ?>
+                                        <td>
+                                            <span class="role-badge role-<?= $row['role'] ?>">
+                                                <?= getRoleDisplayName($row['role']) ?>
                                             </span>
                                         </td>
-                                        <td data-label="Tanggal Backup"><?= date('d/m/Y H:i', strtotime($data['backup_date'])) ?></td>
+                                        <td>
+                                            <strong><?= $row['hours_rounded'] ?></strong> 
+                                            <small style="color:#888;">(<?= number_format($row['hours_raw'], 1) ?>)</small>
+                                        </td>
+                                        <td>
+                                            <strong><?= $row['sales_count'] ?></strong>
+                                        </td>
+                                        <td><?= formatCurrency($row['salary_duty']) ?></td>
+                                        <td><?= formatCurrency($row['salary_bonus']) ?></td>
+                                        <td style="font-size: 1.1em; font-weight: bold; color: var(--success-color);">
+                                            <?= formatCurrency($row['total']) ?>
+                                        </td>
+                                        <td>
+                                            <small><?= $row['note'] ?></small>
+                                        </td>
                                     </tr>
                                     <?php endforeach; ?>
-                                </tbody>
-                            </table>
-                        </div>
-                    <?php endif; ?>
+                                <?php endif; ?>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
+
         </main>
     </div>
-
     <script src="script.js"></script>
 </body>
 </html>

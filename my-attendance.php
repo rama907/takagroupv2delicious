@@ -105,7 +105,7 @@ foreach ($dates_in_week as $date_str) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Absensi Saya - Delicious</title>
+    <title>Absensi Saya - Warung Om Tante V2</title>
     <link rel="icon" href="LOGO_WOT.png" type="image/png">
     <link rel="shortcut icon" href="favicon.ico" type="image/x-icon">
     <link rel="stylesheet" href="style.css">
@@ -171,11 +171,103 @@ foreach ($dates_in_week as $date_str) {
 
         /* Pastikan teks label memiliki warna kontras dengan latar belakangnya */
         .day-status-item.Masuk .status-text-label { color: white; }
-        .day-status-item.Izin .status-text-label { color: var(--text-primary); } /* Kuning mungkin lebih baik teks gelap */
+        .day-status-item.Izin .status-text-label { color: var(--text-primary); } 
         .day-status-item.Absen .status-text-label { color: white; }
+
+        /* === CSS POPUP WARNING === */
+        .warning-popup-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.8); /* Gelap untuk fokus */
+            z-index: 9999;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            backdrop-filter: blur(5px);
+            animation: fadeIn 0.3s ease-in-out;
+        }
+        
+        .warning-popup-content {
+            background: #1e293b; /* Warna latar gelap sesuai tema */
+            color: #fff;
+            padding: 30px;
+            border-radius: 16px;
+            width: 90%;
+            max-width: 500px;
+            text-align: center;
+            position: relative;
+            border: 2px solid #ef4444; /* Merah Danger */
+            box-shadow: 0 25px 50px -12px rgba(239, 68, 68, 0.25);
+            transform: scale(1);
+            animation: popupScale 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .close-warning-popup {
+            position: absolute;
+            top: 15px; right: 15px;
+            background: none; border: none;
+            color: #94a3b8; font-size: 24px; cursor: pointer;
+            transition: color 0.2s;
+        }
+        .close-warning-popup:hover { color: #fff; }
+
+        .warning-icon { font-size: 50px; margin-bottom: 15px; display: block; }
+        
+        .warning-title { 
+            color: #ef4444; 
+            font-size: 1.5rem; 
+            font-weight: 800; 
+            margin-bottom: 15px; 
+            text-transform: uppercase;
+        }
+        
+        .warning-text {
+            color: #e2e8f0;
+            margin-bottom: 25px;
+            line-height: 1.6;
+            font-size: 1rem;
+        }
+
+        .btn-request-leave {
+            display: inline-block;
+            background-color: #ef4444; /* Merah */
+            color: white;
+            text-decoration: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: 700;
+            transition: background 0.2s;
+            border: none;
+            cursor: pointer;
+            width: 100%;
+        }
+        .btn-request-leave:hover { background-color: #dc2626; }
+
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes popupScale { from { transform: scale(0.8); } to { transform: scale(1); } }
+
     </style>
 </head>
 <body>
+    
+    <?php if ($max_consecutive_absent >= 3): ?>
+    <div id="absence-warning-popup" class="warning-popup-overlay">
+        <div class="warning-popup-content">
+            <button class="close-warning-popup" onclick="closeAbsencePopup()">&times;</button>
+            <span class="warning-icon">🚨</span>
+            <h2 class="warning-title">PERINGATAN ABSENSI</h2>
+            <p class="warning-text">
+                Silahkan mengisi surat izin dikarenakan anda terdata sudah absen secara <strong><?= $max_consecutive_absent ?> hari berturut-turut</strong>.
+                <br><br>
+                Bila terus menerus maka HRD atau SDM akan memberikan SP atau menindak lanjuti.
+            </p>
+            <a href="leave-request.php" class="btn-request-leave">
+                📝 Pengajuan Surat Izin
+            </a>
+        </div>
+    </div>
+    <?php endif; ?>
+
     <div class="dashboard-container">
         <?php include 'includes/header.php'; ?>
         <?php include 'includes/sidebar.php'; ?>
@@ -189,9 +281,9 @@ foreach ($dates_in_week as $date_str) {
                 <p>Status kehadiran Anda untuk minggu ini, dari **<?= $start_date_obj_week->format('d M Y') ?>** hingga **<?= $end_date_obj_week->format('d M Y') ?>**.</p>
             </div>
 
-            <?php if ($max_consecutive_absent >= 2): ?>
-                <div class="warning-message" style="margin-bottom: var(--spacing-xl);">
-                    <strong>Pemberitahuan Penting:</strong> Anda tercatat tidak hadir selama **<?= $max_consecutive_absent ?> hari kerja berturut-turut**. Untuk memastikan kelancaran operasional dan pencatatan yang akurat, mohon segera ajukan surat cuti resmi jika Anda berhalangan hadir karena alasan tertentu. Ajukan di <a href="leave-request.php">sini</a>.
+            <?php if ($max_consecutive_absent >= 3): ?>
+                <div class="warning-message" style="margin-bottom: var(--spacing-xl); background-color: rgba(239, 68, 68, 0.1); border: 1px solid #ef4444; color: #ef4444;">
+                    <strong>⚠️ PERHATIAN:</strong> Anda tercatat tidak hadir selama <strong><?= $max_consecutive_absent ?> hari</strong> berturut-turut. Segera ajukan surat izin untuk menghindari sanksi administratif.
                 </div>
             <?php endif; ?>
 
@@ -232,5 +324,13 @@ foreach ($dates_in_week as $date_str) {
     </div>
 
     <script src="script.js"></script>
+    <script>
+        function closeAbsencePopup() {
+            const popup = document.getElementById('absence-warning-popup');
+            if (popup) {
+                popup.style.display = 'none';
+            }
+        }
+    </script>
 </body>
 </html>

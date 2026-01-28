@@ -1,5 +1,5 @@
 <?php
-// File: config.php (Final Version for Discord API - Updated for Royale)
+// File: config.php (Final Version for Discord API - Updated for Royale & Happy Bites)
 
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
@@ -12,9 +12,9 @@ define('API_SECRET_KEY', '564d5c059a374f249a79e481bbf9df15');
 
 // Database configuration
 define('DB_HOST', 'localhost');
-define('DB_USER', 'imjutwnp_royale');
-define('DB_PASS', 'GE8NEEwnfA4udG33NxWu');
-define('DB_NAME', 'imjutwnp_royale');
+define('DB_USER', 'imjutwnp_delicious');
+define('DB_PASS', 'eRJrpFtGzSAtBupHSfAb');
+define('DB_NAME', 'imjutwnp_delicious');
 
 // Create connection
 $conn = new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME);
@@ -234,7 +234,7 @@ function sendDiscordNotification($data, $type = 'info') {
         'room_booking_submitted', 'booking_status_updated', 'payment_status_updated',
         'duty_log_deleted'
     ];
-    $sales_types = ['sale_input', 'sale_deleted']; 
+    $sales_types = ['sale_input', 'sale_deleted', 'cooking_input', 'cooking_deleted']; // UPDATE: Added cooking
     $recap_types = ['daily_absent_recap', 'daily_duty_recap']; 
 
     $refrigerator_types = ['refrigerator_deposit', 'refrigerator_withdraw'];
@@ -285,6 +285,8 @@ function sendDiscordNotification($data, $type = 'info') {
         'employee_action' => 5793266, 
         'sale_input' => 3066993, 
         'sale_deleted' => 15548997, 
+        'cooking_input' => 10181046, // Purple
+        'cooking_deleted' => 10038562, // Dark Purple
         'salary_paid_single' => 3066993, 
         'salary_unpaid_single' => 16776960, 
         'salary_unpaid_all' => 16750899,
@@ -463,22 +465,30 @@ function sendDiscordNotification($data, $type = 'info') {
             if (($decoded_data['action_type'] ?? '') === 'reset_weekly_data') {
                 $embed['title'] = "🔄 Data Mingguan Direset!";
                 $embed['description'] = "Data jam tugas dan penjualan mingguan telah direset oleh **{$admin_name}**.";
+            } elseif (($decoded_data['action_type'] ?? '') === 'mass_activity_delete') {
+                $embed['title'] = "⚠️ Reset Total Data Aktivitas!";
+                $embed['description'] = "Tindakan pembersihan data massal oleh **{$admin_name}**.";
+                $embed['color'] = $colors['danger'];
+                $embed['fields'] = [
+                    ['name' => 'Sales Dihapus', 'value' => $decoded_data['deleted_sales'] ?? 0, 'inline' => true],
+                    ['name' => 'Cooking Dihapus', 'value' => $decoded_data['deleted_cooking'] ?? 0, 'inline' => true],
+                    ['name' => 'Duty Logs Dihapus', 'value' => $decoded_data['deleted_duty_logs'] ?? 0, 'inline' => true],
+                ];
             }
             break;
 
         case 'sale_input':
             $employee_name = $decode($decoded_data['employee_name'] ?? 'N/A');
             
-            // Mengambil paket-paket baru dari data
+            // Kolom baru sesuai struktur database terbaru
             $western = $decoded_data['paket_western'] ?? 0; 
             $nusantara = $decoded_data['paket_nusantara'] ?? 0;
             $kids_meal = $decoded_data['paket_kids_meal'] ?? 0;
-            // UPDATE: Menambahkan Paket Royale
-            $royale = $decoded_data['paket_vip_person'] ?? ($decoded_data['paket_royale'] ?? 0);
+            $happy_bites = $decoded_data['happy_bites'] ?? 0; // NEW
+            $royale = $decoded_data['paket_royale'] ?? 0;
 
-            
             // Menghitung total item yang terjual
-            $total_items_sold = $western + $nusantara + $kids_meal + $royale; 
+            $total_items_sold = $western + $nusantara + $kids_meal + $happy_bites + $royale; 
 
             $embed['title'] = "💰 Data Penjualan Baru Diinput! (Total: {$total_items_sold})";
             $embed['description'] = "**{$employee_name}** telah menginput data penjualan paket Resto. Detail di bawah:";
@@ -492,25 +502,24 @@ function sendDiscordNotification($data, $type = 'info') {
             if ($western > 0) $embed['fields'][] = ['name' => 'Paket Western', 'value' => $western, 'inline' => true];
             if ($nusantara > 0) $embed['fields'][] = ['name' => 'Paket Nusantara', 'value' => $nusantara, 'inline' => true];
             if ($kids_meal > 0) $embed['fields'][] = ['name' => 'Paket Kids Meal', 'value' => $kids_meal, 'inline' => true];
-            if ($royale > 0) $embed['fields'][] = ['name' => 'Paket Royale', 'value' => $royale, 'inline' => true]; // UPDATE
+            if ($happy_bites > 0) $embed['fields'][] = ['name' => 'Happy Bites', 'value' => $happy_bites, 'inline' => true]; // NEW
+            if ($royale > 0) $embed['fields'][] = ['name' => 'Paket Royale', 'value' => $royale, 'inline' => true];
             
-            // Memastikan fields lama yang tidak digunakan tetap kosong agar bot tidak error
             $embed['fields'][] = ['name' => '', 'value' => '', 'inline' => false];
-            
             break;
         
         case 'sale_deleted':
             $employee_name = $decode($decoded_data['employee_name'] ?? 'N/A');
             $sales_date_time = $decode($decoded_data['sales_date_time'] ?? 'N/A');
             
-            // Kolom yang dihapus (menggunakan kolom DB lama)
-            $western = $decoded_data['paket_sake'] ?? 0; 
-            $nusantara = $decoded_data['paket_anggur_merah'] ?? 0;
-            $kids_meal = $decoded_data['paket_tuak'] ?? 0;
-            // UPDATE: Menambahkan Royale
-            $royale = $decoded_data['paket_vip_person'] ?? 0;
+            // Gunakan nama kolom baru, dengan fallback ke kolom lama jika perlu
+            $western = $decoded_data['paket_western'] ?? ($decoded_data['paket_sake'] ?? 0); 
+            $nusantara = $decoded_data['paket_nusantara'] ?? ($decoded_data['paket_anggur_merah'] ?? 0);
+            $kids_meal = $decoded_data['paket_kids_meal'] ?? ($decoded_data['paket_tuak'] ?? 0);
+            $happy_bites = $decoded_data['happy_bites'] ?? 0; // NEW
+            $royale = $decoded_data['paket_royale'] ?? ($decoded_data['paket_vip_person'] ?? 0);
             
-            $total_items_deleted = $western + $nusantara + $kids_meal + $royale;
+            $total_items_deleted = $western + $nusantara + $kids_meal + $happy_bites + $royale;
 
             $embed['title'] = "🗑️ Data Penjualan Dihapus!";
             $embed['description'] = "Data penjualan dari **{$employee_name}** pada **{$sales_date_time}** telah dihapus.";
@@ -520,13 +529,70 @@ function sendDiscordNotification($data, $type = 'info') {
                 ['name' => 'Waktu Input Asli', 'value' => $sales_date_time, 'inline' => true],
             ];
             
-            // Detail Paket yang dihapus
             if ($western > 0) $embed['fields'][] = ['name' => 'Western (Dihapus)', 'value' => $western, 'inline' => true];
             if ($nusantara > 0) $embed['fields'][] = ['name' => 'Nusantara (Dihapus)', 'value' => $nusantara, 'inline' => true];
             if ($kids_meal > 0) $embed['fields'][] = ['name' => 'Kids Meal (Dihapus)', 'value' => $kids_meal, 'inline' => true];
-            if ($royale > 0) $embed['fields'][] = ['name' => 'Royale (Dihapus)', 'value' => $royale, 'inline' => true]; // UPDATE
+            if ($happy_bites > 0) $embed['fields'][] = ['name' => 'Happy Bites (Dihapus)', 'value' => $happy_bites, 'inline' => true]; // NEW
+            if ($royale > 0) $embed['fields'][] = ['name' => 'Royale (Dihapus)', 'value' => $royale, 'inline' => true];
 
             $embed['fields'][] = ['name' => 'Total Item Dihapus', 'value' => $total_items_deleted, 'inline' => false];
+            break;
+
+        case 'cooking_input':
+            $employee_name = $decode($decoded_data['employee_name'] ?? 'N/A');
+            
+            $western = $decoded_data['paket_western'] ?? 0; 
+            $nusantara = $decoded_data['paket_nusantara'] ?? 0;
+            $kids_meal = $decoded_data['paket_kids'] ?? 0;
+            $happy_bites = $decoded_data['happy_bites'] ?? 0;
+            $royale = $decoded_data['paket_royale'] ?? 0;
+
+            $total_items = $western + $nusantara + $kids_meal + $happy_bites + $royale; 
+
+            $embed['title'] = "🔪 Data Masak Diinput! (Total: {$total_items})";
+            $embed['description'] = "**{$employee_name}** telah menginput data masak (pengurangan stok gudang).";
+            $embed['color'] = $colors['cooking_input'];
+            $embed['fields'] = [
+                ['name' => 'Tanggal', 'value' => date('d/m/Y', strtotime($decoded_data['date'] ?? '')), 'inline' => true],
+                ['name' => 'Waktu Input', 'value' => date('H:i:s', strtotime($decoded_data['input_time'] ?? '')), 'inline' => true],
+            ];
+
+            if ($western > 0) $embed['fields'][] = ['name' => 'Western', 'value' => $western, 'inline' => true];
+            if ($nusantara > 0) $embed['fields'][] = ['name' => 'Nusantara', 'value' => $nusantara, 'inline' => true];
+            if ($kids_meal > 0) $embed['fields'][] = ['name' => 'Kids Meal', 'value' => $kids_meal, 'inline' => true];
+            if ($happy_bites > 0) $embed['fields'][] = ['name' => 'Happy Bites', 'value' => $happy_bites, 'inline' => true];
+            if ($royale > 0) $embed['fields'][] = ['name' => 'Royale', 'value' => $royale, 'inline' => true];
+            
+            $embed['fields'][] = ['name' => '', 'value' => '', 'inline' => false];
+            break;
+
+        case 'cooking_deleted':
+            $employee_name = $decode($decoded_data['employee_name'] ?? 'N/A');
+            $date = date('d/m/Y', strtotime($decoded_data['date'] ?? ''));
+            
+            $western = $decoded_data['paket_western'] ?? 0; 
+            $nusantara = $decoded_data['paket_nusantara'] ?? 0;
+            $kids_meal = $decoded_data['paket_kids'] ?? 0;
+            $happy_bites = $decoded_data['happy_bites'] ?? 0;
+            $royale = $decoded_data['paket_royale'] ?? 0;
+            
+            $total_items = $western + $nusantara + $kids_meal + $happy_bites + $royale;
+
+            $embed['title'] = "🗑️ Log Masak Dihapus!";
+            $embed['description'] = "Log masak dari **{$employee_name}** pada tanggal **{$date}** telah dihapus.";
+            $embed['color'] = $colors['cooking_deleted'];
+            $embed['fields'] = [
+                ['name' => 'Anggota', 'value' => $employee_name, 'inline' => true],
+                ['name' => 'Tanggal Log', 'value' => $date, 'inline' => true],
+            ];
+            
+            if ($western > 0) $embed['fields'][] = ['name' => 'Western', 'value' => $western, 'inline' => true];
+            if ($nusantara > 0) $embed['fields'][] = ['name' => 'Nusantara', 'value' => $nusantara, 'inline' => true];
+            if ($kids_meal > 0) $embed['fields'][] = ['name' => 'Kids Meal', 'value' => $kids_meal, 'inline' => true];
+            if ($happy_bites > 0) $embed['fields'][] = ['name' => 'Happy Bites', 'value' => $happy_bites, 'inline' => true];
+            if ($royale > 0) $embed['fields'][] = ['name' => 'Royale', 'value' => $royale, 'inline' => true];
+
+            $embed['fields'][] = ['name' => 'Total Item Dihapus', 'value' => $total_items, 'inline' => false];
             break;
             
         case 'refrigerator_deposit':
@@ -535,7 +601,7 @@ function sendDiscordNotification($data, $type = 'info') {
         case 'warehouse_withdraw':
             $is_deposit = (strpos($type, '_deposit') !== false);
             $is_refrigerator = (strpos($type, 'refrigerator') !== false);
-            $stock_type_name = $is_refrigerator ? 'Resto (Kulkas)' : 'Gudang'; // Diubah
+            $stock_type_name = $is_refrigerator ? 'Resto (Kulkas)' : 'Gudang'; 
             $action_text = $is_deposit ? 'DEPOSIT (Masuk)' : 'WITHDRAW (Keluar)';
             $icon = $is_deposit ? '➕' : '➖';
             $employee_name = $decode($decoded_data['employee_name'] ?? 'N/A');
@@ -551,7 +617,6 @@ function sendDiscordNotification($data, $type = 'info') {
             ];
             $detail_list = "";
             foreach ($product_list as $product => $qty) {
-                // Tambahkan check untuk array yang di-pass saat auto deposit/withdraw
                 if (is_string($product) && !is_array($qty)) {
                      $detail_list .= "- " . str_replace('_', ' ', $product) . " (`{$qty}`)\n";
                 }

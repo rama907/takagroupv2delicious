@@ -2,7 +2,7 @@
 require_once 'config.php';
 
 if (!isLoggedIn()) {
-    // Diubah: Mengarahkan ke root (/) untuk halaman index/login
+    // Mengarahkan ke root (/) untuk halaman index/login
     header('Location: /');
     exit;
 }
@@ -62,7 +62,7 @@ if (isset($_POST['action']) && $_POST['action'] === 'off_duty') {
             $stmt->close();
             
             if ($log) {
-                // FIX 1: Gunakan TIMESTAMPDIFF(MINUTE, ...) untuk menghitung durasi yang akurat dan set status ke 'completed'
+                // FIX: Gunakan TIMESTAMPDIFF(MINUTE, ...) untuk menghitung durasi yang akurat dan set status ke 'completed'
                 $stmt_update_log = $conn->prepare("
                     UPDATE duty_logs 
                     SET duty_end = NOW(), 
@@ -119,51 +119,56 @@ $stmt->execute();
 $total_minutes = $stmt->get_result()->fetch_assoc()['total_minutes'] ?? 0;
 $stmt->close();
 
-// === MODIFIKASI: QUERY UNTUK TOTAL PENJUALAN (Termasuk Royale) ===
-// Logic: Menambahkan paket_vip_person sebagai sales HANYA JIKA paket masak (spicy_*) kosong.
+// === MODIFIKASI: QUERY UNTUK TOTAL PENJUALAN (Update Struktur Baru) ===
+// Menjumlahkan kolom spesifik dari tabel sales_data
 $total_sales_packages_dashboard = 0;
 $stmt_sales_packages = $conn->prepare("
     SELECT
-        COALESCE(SUM(paket_sake), 0) as paket_western, 
-        COALESCE(SUM(paket_anggur_merah), 0) as paket_nusantara, 
-        COALESCE(SUM(paket_tuak), 0) as paket_kids_meal,
-        COALESCE(SUM(CASE WHEN (paket_spicy_1 + paket_spicy_2 + paket_spicy_3) = 0 THEN paket_vip_person ELSE 0 END), 0) as paket_royale_sales
+        COALESCE(SUM(paket_western), 0) + 
+        COALESCE(SUM(paket_nusantara), 0) + 
+        COALESCE(SUM(paket_kids), 0) + 
+        COALESCE(SUM(happy_bites), 0) + 
+        COALESCE(SUM(paket_royale), 0) as total_sales
     FROM sales_data
     WHERE employee_id = ?
 ");
+
 if ($stmt_sales_packages) {
     $stmt_sales_packages->bind_param("i", $user['id']);
     $stmt_sales_packages->execute();
-    $result_sales_packages = $stmt_sales_packages->get_result()->fetch_assoc();
-    if ($result_sales_packages) {
-        $total_sales_packages_dashboard = array_sum($result_sales_packages);
+    $result_sales = $stmt_sales_packages->get_result()->fetch_assoc();
+    if ($result_sales) {
+        $total_sales_packages_dashboard = (int)$result_sales['total_sales'];
     }
     $stmt_sales_packages->close();
 }
-$total_paket_terjual_dashboard = $total_sales_packages_dashboard; // Variabel yang digunakan di HTML
+$total_paket_terjual_dashboard = $total_sales_packages_dashboard;
 
-// === MODIFIKASI: QUERY UNTUK TOTAL MASAK (Termasuk Royale) ===
-// Logic: Menambahkan paket_vip_person sebagai prep HANYA JIKA paket sales (sake/anggur/tuak) kosong.
+
+// === MODIFIKASI: QUERY UNTUK TOTAL MASAK (Update Struktur Baru) ===
+// Mengambil data dari tabel cooking_data (tabel baru untuk log masak)
 $total_prep_packages_dashboard = 0;
 $stmt_prep_packages = $conn->prepare("
     SELECT
-        COALESCE(SUM(paket_spicy_1), 0) as paket_western_prep, 
-        COALESCE(SUM(paket_spicy_2), 0) as paket_nusantara_prep, 
-        COALESCE(SUM(paket_spicy_3), 0) as paket_kids_meal_prep,
-        COALESCE(SUM(CASE WHEN (paket_sake + paket_anggur_merah + paket_tuak) = 0 THEN paket_vip_person ELSE 0 END), 0) as paket_royale_prep
-    FROM sales_data
+        COALESCE(SUM(paket_western), 0) + 
+        COALESCE(SUM(paket_nusantara), 0) + 
+        COALESCE(SUM(paket_kids), 0) + 
+        COALESCE(SUM(happy_bites), 0) + 
+        COALESCE(SUM(paket_royale), 0) as total_cooking
+    FROM cooking_data
     WHERE employee_id = ?
 ");
+
 if ($stmt_prep_packages) {
     $stmt_prep_packages->bind_param("i", $user['id']);
     $stmt_prep_packages->execute();
-    $result_prep_packages = $stmt_prep_packages->get_result()->fetch_assoc();
-    if ($result_prep_packages) {
-        $total_prep_packages_dashboard = array_sum($result_prep_packages);
+    $result_prep = $stmt_prep_packages->get_result()->fetch_assoc();
+    if ($result_prep) {
+        $total_prep_packages_dashboard = (int)$result_prep['total_cooking'];
     }
     $stmt_prep_packages->close();
 }
-$total_paket_masak_dashboard = $total_prep_packages_dashboard; // Variabel baru untuk Masak
+$total_paket_masak_dashboard = $total_prep_packages_dashboard;
 
 
 // Get recent activities

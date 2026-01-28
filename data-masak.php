@@ -14,6 +14,7 @@ $is_admin_or_manager = hasRole(['ceo', 'direktur', 'wakil_direktur', 'manager'])
 // Inisialisasi ID karyawan yang akan diinput datanya. Defaultnya adalah user yang login.
 $employee_id_to_submit = $user['id'];
 $selected_employee_name = $user['name'];
+$selected_employee_role = $user['role'];
 
 // Jika pengguna memiliki peran admin, ambil daftar semua karyawan untuk dropdown
 $all_employees = [];
@@ -24,6 +25,7 @@ if ($is_admin_or_manager) {
         foreach ($all_employees as $emp) {
             if ($emp['id'] === $employee_id_to_submit) {
                 $selected_employee_name = htmlspecialchars($emp['name']);
+                $selected_employee_role = $emp['role'];
                 break;
             }
         }
@@ -36,69 +38,88 @@ $success_message = null;
 $error_message = null;
 
 // === RESEP (DIHITUNG PER 1 PAKET) ===
-// Request: 20 Paket Royale = 40 Daging, 80 Tepung, 120 Gula, 100 Serbuk Teh
-// Maka per 1 Paket Royale = 2 Daging, 4 Tepung, 6 Gula, 5 Serbuk Teh
+// Dikonversi dari request (untuk 20 paket) menjadi per 1 unit.
+// Digunakan untuk pengurangan stok gudang otomatis.
 $RECIPES_PER_UNIT = [
     'prep_western' => [
-        'Tepung' => 4,
-        'Ayam Kemasan' => 2,
-        'Susu' => 2,
-        'Serbuk Teh' => 4
+        // Request: Tepung 80, Ayam 40, Susu 80, Teh 100 (utk 20 paket)
+        'Tepung' => 4,          // 80/20
+        'Ayam Kemasan' => 2,    // 40/20
+        'Susu' => 4,            // 80/20
+        'Serbuk Teh' => 5       // 100/20
     ],
     'prep_nusantara' => [
-        'Ayam Kemasan' => 3,
-        'Beras' => 5,
-        'Es Batu' => 5,
-        'Jeruk Kemasan' => 5
+        // Request: Ayam 60, Beras 100, Tepung 80, Jeruk 80 (utk 20 paket)
+        'Ayam Kemasan' => 3,    // 60/20
+        'Beras' => 5,           // 100/20
+        'Tepung' => 4,          // 80/20
+        'Jeruk Kemasan' => 4    // 80/20
     ],
     'prep_kids_meal' => [
-        'Ayam Kemasan' => 3,
-        'Beras' => 5,
-        'Es Batu' => 3,
-        'Susu' => 1
+        // Request: Ayam 60, Beras 100, Jeruk 60, Susu 40 (utk 20 paket)
+        'Ayam Kemasan' => 3,    // 60/20
+        'Beras' => 5,           // 100/20
+        'Jeruk Kemasan' => 3,   // 60/20
+        'Susu' => 2             // 40/20
     ],
     'prep_royale' => [
-        'Daging' => 2,
-        'Tepung' => 4,
-        'Gula' => 6,
-        'Serbuk Teh' => 5
+        // Request: Daging 80, Tepung 80, Susu 60, Teh 100 (utk 20 paket)
+        'Daging' => 4,          // 80/20
+        'Tepung' => 4,          // 80/20
+        'Susu' => 3,            // 60/20
+        'Serbuk Teh' => 5       // 100/20
+    ],
+    'prep_happy_bites' => [
+        // Request: Tepung 40, Ayam 60, Jeruk 40, Susu 20 (utk 20 paket)
+        'Tepung' => 2,          // 40/20
+        'Ayam Kemasan' => 3,    // 60/20
+        'Jeruk Kemasan' => 2,   // 40/20
+        'Susu' => 1             // 20/20
     ]
 ];
 $MIN_INPUT_UNIT = 20; // Kelipatan minimal untuk input
 
 // --- Handle Delete Masak Entry ---
 if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POST['action'] === 'delete_masak_entry')) {
-    $sales_entry_id = (int)($_POST['sales_entry_id'] ?? 0);
+    $cooking_entry_id = (int)($_POST['cooking_entry_id'] ?? 0);
 
-    if ($sales_entry_id <= 0) {
+    if ($cooking_entry_id <= 0) {
         $error_message = "ID entri masak tidak valid!";
     } else {
         $conn->begin_transaction();
         try {
-            // Ambil detail entri sebelum dihapus (Termasuk paket_vip_person untuk Royale)
+            // Ambil detail entri sebelum dihapus dari tabel cooking_data
             $stmt_get_entry = $conn->prepare("
-                SELECT id, input_time, employee_id, paket_spicy_1, paket_spicy_2, paket_spicy_3, paket_vip_person 
-                FROM sales_data
+                SELECT * FROM cooking_data
                 WHERE id = ?
             ");
             if (!$stmt_get_entry) { throw new Exception("Gagal menyiapkan query ambil detail entri: " . $conn->error); }
-            $stmt_get_entry->bind_param("i", $sales_entry_id);
+            $stmt_get_entry->bind_param("i", $cooking_entry_id);
             $stmt_get_entry->execute();
             $entry_details = $stmt_get_entry->get_result()->fetch_assoc();
             $stmt_get_entry->close();
 
             if (!$entry_details) { throw new Exception("Entri masak tidak ditemukan."); }
             
-            // Hapus entri penjualan
-            $stmt_delete = $conn->prepare("DELETE FROM sales_data WHERE id = ?");
-            if (!$stmt_delete) { throw new Exception("Gagal menyiapkan query hapus entri penjualan: " . $conn->error); }
-            $stmt_delete->bind_param("i", $sales_entry_id);
+            // Hapus entri dari cooking_data
+            $stmt_delete = $conn->prepare("DELETE FROM cooking_data WHERE id = ?");
+            if (!$stmt_delete) { throw new Exception("Gagal menyiapkan query hapus entri masak: " . $conn->error); }
+            $stmt_delete->bind_param("i", $cooking_entry_id);
             
             if ($stmt_delete->execute() && $stmt_delete->affected_rows > 0) {
                 $conn->commit();
                 $success_message = "Entri masak tanggal " . date('d/m/Y H:i', strtotime($entry_details['input_time'])) . " berhasil dihapus.";
                 
-                // Peringatan: Penghapusan log masak TIDAK mengembalikan stok gudang/kulkas.
+                // Kirim notifikasi penghapusan
+                sendDiscordNotification([
+                    'employee_name' => getEmployeeNameById($entry_details['employee_id']),
+                    'date' => $entry_details['date'],
+                    'paket_western' => $entry_details['paket_western'] ?? 0,
+                    'paket_nusantara' => $entry_details['paket_nusantara'] ?? 0,
+                    'paket_kids' => $entry_details['paket_kids'] ?? 0,
+                    'happy_bites' => $entry_details['happy_bites'] ?? 0,
+                    'paket_royale' => $entry_details['paket_royale'] ?? 0,
+                ], 'cooking_deleted');
 
             } else {
                 throw new Exception("Gagal menghapus entri masak. Mungkin sudah dihapus.");
@@ -134,7 +155,8 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
     $prep_western = (int)($_POST['prep_western'] ?? 0);
     $prep_nusantara = (int)($_POST['prep_nusantara'] ?? 0);
     $prep_kids_meal = (int)($_POST['prep_kids_meal'] ?? 0);
-    $prep_royale = (int)($_POST['prep_royale'] ?? 0); // New Input
+    $prep_happy_bites = (int)($_POST['prep_happy_bites'] ?? 0);
+    $prep_royale = (int)($_POST['prep_royale'] ?? 0); 
     
     $error_message = null; 
 
@@ -165,7 +187,7 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
     }
 
     // PENTING: Cek apakah ada input paket baru
-    $total_new_prep = $prep_western + $prep_nusantara + $prep_kids_meal + $prep_royale;
+    $total_new_prep = $prep_western + $prep_nusantara + $prep_kids_meal + $prep_happy_bites + $prep_royale;
     if ($total_new_prep === 0 && !isset($error_message)) {
         $error_message = "Harap masukkan minimal {$MIN_INPUT_UNIT} paket yang dimasak!";
     }
@@ -174,6 +196,7 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
     if (($prep_western % $MIN_INPUT_UNIT !== 0) || 
         ($prep_nusantara % $MIN_INPUT_UNIT !== 0) || 
         ($prep_kids_meal % $MIN_INPUT_UNIT !== 0) || 
+        ($prep_happy_bites % $MIN_INPUT_UNIT !== 0) || 
         ($prep_royale % $MIN_INPUT_UNIT !== 0)) {
         if (!isset($error_message)) {
             $error_message = "Jumlah paket harus kelipatan {$MIN_INPUT_UNIT} (20, 40, 60, dst.).";
@@ -192,7 +215,7 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
     // --- START ATOMIC TRANSACTION ---
     $conn->begin_transaction();
     $withdrawn_products = [];
-    $deposited_products = []; // Untuk notifikasi deposit
+    $deposited_products = []; 
 
     try {
         // --- 1. LOGIKA WITHDRAW STOK GUDANG (Bahan Baku) ---
@@ -200,6 +223,7 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
             'prep_western' => $prep_western, 
             'prep_nusantara' => $prep_nusantara, 
             'prep_kids_meal' => $prep_kids_meal,
+            'prep_happy_bites' => $prep_happy_bites,
             'prep_royale' => $prep_royale
         ];
         
@@ -261,7 +285,8 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
             'Paket Western' => $prep_western,    
             'Paket Nusantara' => $prep_nusantara,
             'Paket Kids Meal' => $prep_kids_meal,
-            'Paket Royale' => $prep_royale // New Deposit
+            'Happy Bites' => $prep_happy_bites,
+            'Paket Royale' => $prep_royale
         ];
 
         foreach ($deposit_products_map as $stock_name => $qty_to_deposit) {
@@ -298,35 +323,29 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
             }
         }
         
-        // --- 3. INSERT INTO sales_data (Log Masak) ---
-        $db_col_western = $prep_western;    // paket_spicy_1
-        $db_col_nusantara = $prep_nusantara;  // paket_spicy_2
-        $db_col_kids_meal = $prep_kids_meal; // paket_spicy_3
-        $db_col_royale = $prep_royale; // Mapping to paket_vip_person (UNUSED COLUMN)
-        
+        // --- 3. INSERT INTO cooking_data (Log Masak) ---
         $stmt = $conn->prepare("
-            INSERT INTO sales_data (
+            INSERT INTO cooking_data (
                 employee_id, date, input_time, week_number, year, 
-                paket_sake, paket_anggur_merah, paket_tuak, paket_soju,
-                paket_spicy_1, paket_spicy_2, paket_spicy_3,
-                paket_vip_person, paket_special_30min
+                paket_western, paket_nusantara, paket_kids, 
+                happy_bites, paket_royale
             )
-            VALUES (?, ?, ?, ?, ?, 0, 0, 0, 0, ?, ?, ?, ?, 0)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
         
-        // Perhatikan urutan bind_param: paket_vip_person diisi $db_col_royale
         if (!$stmt) { throw new Exception("Gagal menyiapkan query insert log masak: " . $conn->error); }
         
-        $stmt->bind_param("issiiiiii", 
+        $stmt->bind_param("issiiiiiii", 
             $employee_id_from_form, 
             $formatted_date, 
             $input_time,
             $week_number,       
             $year,              
-            $db_col_western,    
-            $db_col_nusantara,  
-            $db_col_kids_meal,
-            $db_col_royale  
+            $prep_western,    
+            $prep_nusantara,  
+            $prep_kids_meal,
+            $prep_happy_bites,
+            $prep_royale  
         );
         
         if (!$stmt->execute()) {
@@ -334,13 +353,23 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
         }
         $stmt->close();
         
-        $conn->commit(); // Commit log masak dan stock updates
+        $conn->commit(); 
         
         $success_message = "Log masak berhasil disimpan untuk tanggal " . date('d/m/Y', strtotime($formatted_date)) . "! Stok gudang dikurangi dan Stok Resto diisi.";
         
-        // --- 4. KIRIM NOTIFIKASI DISCORD (DIPISAHKAN) ---
+        // --- 4. KIRIM NOTIFIKASI DISCORD ---
 
-        // Notifikasi 1: Deposit ke Resto/Kulkas (Produk Jadi)
+        sendDiscordNotification([
+            'employee_name' => getEmployeeNameById($employee_id_from_form),
+            'date' => $formatted_date,
+            'input_time' => $input_time,
+            'paket_western' => $prep_western,
+            'paket_nusantara' => $prep_nusantara,
+            'paket_kids' => $prep_kids_meal,
+            'happy_bites' => $prep_happy_bites,
+            'paket_royale' => $prep_royale
+        ], "cooking_input");
+
         if (!empty($deposited_products)) {
             sendDiscordNotification([
                 'employee_name' => getEmployeeNameById($employee_id_from_form),
@@ -348,7 +377,6 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
             ], "refrigerator_deposit");
         }
 
-        // Notifikasi 2: Withdraw dari Gudang (Bahan Baku)
         if (!empty($withdrawn_products)) {
             sendDiscordNotification([
                 'employee_name' => getEmployeeNameById($employee_id_from_form),
@@ -372,19 +400,19 @@ $overall_prep_summary = [
     'prep_western' => 0,
     'prep_nusantara' => 0,
     'prep_kids_meal' => 0,
+    'prep_happy_bites' => 0,
     'prep_royale' => 0,
 ];
-// Menggunakan paket_vip_person sebagai prep_royale
+
 $stmt = $conn->prepare("
     SELECT 
-        SUM(paket_spicy_1) as prep_western, 
-        SUM(paket_spicy_2) as prep_nusantara, 
-        SUM(paket_spicy_3) as prep_kids_meal,
-        SUM(paket_vip_person) as prep_royale
-    FROM sales_data 
+        SUM(paket_western) as prep_western, 
+        SUM(paket_nusantara) as prep_nusantara, 
+        SUM(paket_kids) as prep_kids_meal,
+        SUM(happy_bites) as prep_happy_bites,
+        SUM(paket_royale) as prep_royale
+    FROM cooking_data 
     WHERE employee_id = ?
-    AND (paket_sake + paket_anggur_merah + paket_tuak) = 0 /* FILTER OUT SALES LOGS */
-    AND (paket_spicy_1 + paket_spicy_2 + paket_spicy_3 + paket_vip_person) > 0 /* ONLY INCLUDE MASAK LOGS */
 ");
 $stmt->bind_param("i", $employee_id_to_submit);
 $stmt->execute();
@@ -394,18 +422,19 @@ if ($overall_prep_summary_result) {
 }
 $stmt->close();
 
-$total_overall_prep = $overall_prep_summary['prep_western'] + $overall_prep_summary['prep_nusantara'] + $overall_prep_summary['prep_kids_meal'] + $overall_prep_summary['prep_royale'];
+$total_overall_prep = ($overall_prep_summary['prep_western'] ?? 0) + 
+                      ($overall_prep_summary['prep_nusantara'] ?? 0) + 
+                      ($overall_prep_summary['prep_kids_meal'] ?? 0) + 
+                      ($overall_prep_summary['prep_happy_bites'] ?? 0) + 
+                      ($overall_prep_summary['prep_royale'] ?? 0);
 
 
 $today = date('Y-m-d');
 // Query untuk Riwayat Masak Terbaru (Hanya Masak)
-// Mengambil paket_vip_person juga
 $stmt = $conn->prepare("
-    SELECT id, input_time, paket_spicy_1, paket_spicy_2, paket_spicy_3, paket_vip_person
-    FROM sales_data 
+    SELECT id, input_time, paket_western, paket_nusantara, paket_kids, happy_bites, paket_royale
+    FROM cooking_data 
     WHERE employee_id = ? AND date = ? 
-    AND (paket_sake + paket_anggur_merah + paket_tuak) = 0 /* FILTER OUT SALES LOGS */
-    AND (paket_spicy_1 + paket_spicy_2 + paket_spicy_3 + paket_vip_person) > 0 /* ONLY INCLUDE MASAK LOGS */
     ORDER BY input_time DESC
 ");
 $stmt->bind_param("is", $employee_id_to_submit, $today);
@@ -418,14 +447,16 @@ $daily_total = [
     'prep_western' => 0,
     'prep_nusantara' => 0,
     'prep_kids_meal' => 0,
+    'prep_happy_bites' => 0,
     'prep_royale' => 0,
     'total_entries' => count($recent_prep)
 ];
 foreach ($recent_prep as $entry) {
-    $daily_total['prep_western'] += $entry['paket_spicy_1']; 
-    $daily_total['prep_nusantara'] += $entry['paket_spicy_2']; 
-    $daily_total['prep_kids_meal'] += $entry['paket_spicy_3']; 
-    $daily_total['prep_royale'] += $entry['paket_vip_person']; // Mapping
+    $daily_total['prep_western'] += $entry['paket_western']; 
+    $daily_total['prep_nusantara'] += $entry['paket_nusantara']; 
+    $daily_total['prep_kids_meal'] += $entry['paket_kids']; 
+    $daily_total['prep_happy_bites'] += $entry['happy_bites']; 
+    $daily_total['prep_royale'] += $entry['paket_royale']; 
 }
 
 ?>
@@ -504,6 +535,37 @@ foreach ($recent_prep as $entry) {
             margin-top: 5px;
             white-space: pre-wrap;
         }
+        /* Style untuk Card Estimasi */
+        .estimation-card {
+            background: #fff3cd; /* Kuning muda lembut */
+            border: 1px solid #ffeeba;
+            border-radius: var(--radius-lg);
+            padding: var(--spacing-md);
+            margin-top: var(--spacing-md); 
+            margin-bottom: var(--spacing-lg);
+            color: #856404;
+        }
+        .estimation-title {
+            font-weight: 700;
+            margin-bottom: var(--spacing-sm);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .estimation-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 10px;
+            font-size: 0.9rem;
+        }
+        .est-item {
+            background: rgba(255,255,255,0.6);
+            padding: 5px 10px;
+            border-radius: 4px;
+            display: flex;
+            justify-content: space-between;
+        }
+        .est-val { font-weight: 600; }
     </style>
 </head>
 <body>
@@ -550,6 +612,10 @@ foreach ($recent_prep as $entry) {
                             <span class="stat-value" style="font-size: 1.2em;"><?= $overall_prep_summary['prep_kids_meal'] ?? 0 ?></span>
                         </div>
                         <div class="stat-item">
+                            <span class="stat-label">Happy Bites</span>
+                            <span class="stat-value" style="font-size: 1.2em;"><?= $overall_prep_summary['prep_happy_bites'] ?? 0 ?></span>
+                        </div>
+                        <div class="stat-item">
                             <span class="stat-label">Paket Royale</span>
                             <span class="stat-value" style="font-size: 1.2em;"><?= $overall_prep_summary['prep_royale'] ?? 0 ?></span>
                         </div>
@@ -567,7 +633,7 @@ foreach ($recent_prep as $entry) {
                 </div>
                 <div class="card-content">
                     
-                    <div class="info-message" style="margin-bottom: var(--spacing-xl);">
+                    <div class="info-message" style="margin-bottom: var(--spacing-md);">
                         <strong>Penting:</strong> Masukkan **total paket yang dimasak** (misal: 20, 40, 60, dst.). Angka harus kelipatan **<?= $MIN_INPUT_UNIT ?>**.
                         <br>
                         <strong>Withdraw Stok Otomatis:</strong> Stok Gudang dikurangi (bahan baku) dan Stok Resto diisi (produk jadi).
@@ -607,6 +673,14 @@ foreach ($recent_prep as $entry) {
                             </small>
                         </div>
                         
+                        <div class="estimation-card" id="estimation-card" style="display: none;">
+                            <div class="estimation-title">
+                                <span>📋</span> Estimasi Bahan Baku yang Akan Diambil
+                            </div>
+                            <div class="estimation-list" id="estimation-list">
+                                </div>
+                        </div>
+
                         <div class="sales-input-grid">
                             
                             <div class="section-separator">Total Paket yang Dimasak</div>
@@ -616,10 +690,10 @@ foreach ($recent_prep as $entry) {
                                 <p>(Withdrawal Stok Gudang)</p>
                                 <div class="quantity-group">
                                     <label for="prep_western">Paket</label>
-                                    <input type="number" name="prep_western" id="prep_western" value="0" min="0" step="<?= $MIN_INPUT_UNIT ?>" onchange="validateStep(this)">
+                                    <input type="number" name="prep_western" id="prep_western" value="0" min="0" step="<?= $MIN_INPUT_UNIT ?>" class="input-calc" onchange="validateStep(this)">
                                 </div>
                                 <div class="stock-info">
-                                    Resep (per 1 paket): Tepung (4), Ayam (2), Susu (2), Teh (4).
+                                    Resep (per 1 paket): Tepung (4), Ayam (2), Susu (4), Teh (5).
                                 </div>
                             </div>
                             <div class="product-card">
@@ -627,10 +701,10 @@ foreach ($recent_prep as $entry) {
                                 <p>(Withdrawal Stok Gudang)</p>
                                 <div class="quantity-group">
                                     <label for="prep_nusantara">Paket</label>
-                                    <input type="number" name="prep_nusantara" id="prep_nusantara" value="0" min="0" step="<?= $MIN_INPUT_UNIT ?>" onchange="validateStep(this)">
+                                    <input type="number" name="prep_nusantara" id="prep_nusantara" value="0" min="0" step="<?= $MIN_INPUT_UNIT ?>" class="input-calc" onchange="validateStep(this)">
                                 </div>
                                 <div class="stock-info">
-                                    Resep (per 1 paket): Ayam (3), Beras (5), Es Batu (5), Jeruk (5).
+                                    Resep (per 1 paket): Ayam (3), Beras (5), Tepung (4), Jeruk (4).
                                 </div>
                             </div>
                             <div class="product-card">
@@ -638,10 +712,21 @@ foreach ($recent_prep as $entry) {
                                 <p>(Withdrawal Stok Gudang)</p>
                                 <div class="quantity-group">
                                     <label for="prep_kids_meal">Paket</label>
-                                    <input type="number" name="prep_kids_meal" id="prep_kids_meal" value="0" min="0" step="<?= $MIN_INPUT_UNIT ?>" onchange="validateStep(this)">
+                                    <input type="number" name="prep_kids_meal" id="prep_kids_meal" value="0" min="0" step="<?= $MIN_INPUT_UNIT ?>" class="input-calc" onchange="validateStep(this)">
                                 </div>
                                 <div class="stock-info">
-                                    Resep (per 1 paket): Ayam (3), Beras (5), Es Batu (3), Susu (1).
+                                    Resep (per 1 paket): Ayam (3), Beras (5), Jeruk (3), Susu (2).
+                                </div>
+                            </div>
+                            <div class="product-card">
+                                <label for="prep_happy_bites">HAPPY BITES</label>
+                                <p>(Withdrawal Stok Gudang)</p>
+                                <div class="quantity-group">
+                                    <label for="prep_happy_bites">Paket</label>
+                                    <input type="number" name="prep_happy_bites" id="prep_happy_bites" value="0" min="0" step="<?= $MIN_INPUT_UNIT ?>" class="input-calc" onchange="validateStep(this)">
+                                </div>
+                                <div class="stock-info">
+                                    Resep (per 1 paket): Tepung (2), Ayam (3), Jeruk (2), Susu (1).
                                 </div>
                             </div>
                             <div class="product-card">
@@ -649,10 +734,10 @@ foreach ($recent_prep as $entry) {
                                 <p>(Withdrawal Stok Gudang)</p>
                                 <div class="quantity-group">
                                     <label for="prep_royale">Paket</label>
-                                    <input type="number" name="prep_royale" id="prep_royale" value="0" min="0" step="<?= $MIN_INPUT_UNIT ?>" onchange="validateStep(this)">
+                                    <input type="number" name="prep_royale" id="prep_royale" value="0" min="0" step="<?= $MIN_INPUT_UNIT ?>" class="input-calc" onchange="validateStep(this)">
                                 </div>
                                 <div class="stock-info">
-                                    Resep (per 1 paket): Daging (2), Tepung (4), Gula (6), Teh (5).
+                                    Resep (per 1 paket): Daging (4), Tepung (4), Susu (3), Teh (5).
                                 </div>
                             </div>
                             
@@ -685,6 +770,7 @@ foreach ($recent_prep as $entry) {
                                         <th>Western</th>
                                         <th>Nusantara</th>
                                         <th>Kids Meal</th>
+                                        <th>Happy Bites</th>
                                         <th>Royale</th>
                                         <th>Aksi</th>
                                     </tr>
@@ -703,14 +789,15 @@ foreach ($recent_prep as $entry) {
                                                 <?php endif; ?>
                                             </div>
                                         </td>
-                                        <td data-label="Western"><?= $entry['paket_spicy_1'] ?? 0 ?></td>
-                                        <td data-label="Nusantara"><?= $entry['paket_spicy_2'] ?? 0 ?></td>
-                                        <td data-label="Kids Meal"><?= $entry['paket_spicy_3'] ?? 0 ?></td>
-                                        <td data-label="Royale"><?= $entry['paket_vip_person'] ?? 0 ?></td>
+                                        <td data-label="Western"><?= $entry['paket_western'] ?? 0 ?></td>
+                                        <td data-label="Nusantara"><?= $entry['paket_nusantara'] ?? 0 ?></td>
+                                        <td data-label="Kids Meal"><?= $entry['paket_kids'] ?? 0 ?></td>
+                                        <td data-label="Happy Bites"><?= $entry['happy_bites'] ?? 0 ?></td>
+                                        <td data-label="Royale"><?= $entry['paket_royale'] ?? 0 ?></td>
                                         <td data-label="Aksi">
                                             <form method="POST" onsubmit="return confirm('Yakin ingin menghapus log masak ini? Catatan: Penghapusan TIDAK mengembalikan stok gudang!')">
                                                 <input type="hidden" name="action" value="delete_masak_entry">
-                                                <input type="hidden" name="sales_entry_id" value="<?= $entry['id'] ?>">
+                                                <input type="hidden" name="cooking_entry_id" value="<?= $entry['id'] ?>">
                                                 <button type="submit" class="btn btn-danger btn-sm">Hapus Log</button>
                                             </form>
                                         </td>
@@ -727,6 +814,9 @@ foreach ($recent_prep as $entry) {
 
     <script src="script.js"></script> 
     <script>
+        // Pass PHP Recipes to JS
+        const recipes = <?= json_encode($RECIPES_PER_UNIT) ?>;
+
         // Update current time display
         function updateCurrentTime() {
             const now = new Date();
@@ -772,6 +862,44 @@ foreach ($recent_prep as $entry) {
             if (value < 0) {
                 input.value = 0;
             }
+            calculateEstimation(); // Recalculate on validation
+        }
+
+        // --- NEW: Calculate Ingredient Estimation ---
+        function calculateEstimation() {
+            const inputs = document.querySelectorAll('.input-calc');
+            const totals = {};
+            let hasInput = false;
+
+            inputs.forEach(input => {
+                const qty = parseInt(input.value) || 0;
+                if (qty > 0) {
+                    hasInput = true;
+                    const id = input.id; // e.g., 'prep_western'
+                    if (recipes[id]) {
+                        for (const [ingredient, amountPerUnit] of Object.entries(recipes[id])) {
+                            if (!totals[ingredient]) totals[ingredient] = 0;
+                            totals[ingredient] += qty * amountPerUnit;
+                        }
+                    }
+                }
+            });
+
+            const card = document.getElementById('estimation-card');
+            const list = document.getElementById('estimation-list');
+            list.innerHTML = '';
+
+            if (hasInput) {
+                card.style.display = 'block';
+                for (const [name, amount] of Object.entries(totals)) {
+                    const itemDiv = document.createElement('div');
+                    itemDiv.className = 'est-item';
+                    itemDiv.innerHTML = `<span>${name}</span> <span class="est-val">${amount}</span>`;
+                    list.appendChild(itemDiv);
+                }
+            } else {
+                card.style.display = 'none';
+            }
         }
 
         document.addEventListener('DOMContentLoaded', function() {
@@ -780,6 +908,11 @@ foreach ($recent_prep as $entry) {
             updateCurrentTime();
             setInterval(updateCurrentTime, 1000);
             
+            // Add listener for estimation
+            document.querySelectorAll('.input-calc').forEach(input => {
+                input.addEventListener('input', calculateEstimation);
+            });
+
             form.addEventListener('submit', function(e) {
                 const submitBtn = document.getElementById('submit-btn');
                 
@@ -795,7 +928,6 @@ foreach ($recent_prep as $entry) {
                 let totalItems = 0;
                 document.querySelectorAll('.quantity-group input[type="number"]').forEach(input => {
                     totalItems += parseInt(input.value) || 0;
-                    // Re-validate before final submit
                     validateStep(input); 
                 });
                 
@@ -805,7 +937,7 @@ foreach ($recent_prep as $entry) {
                     return false;
                 }
 
-                if (!confirm(`Yakin ingin menyimpan log masak pada jam ${timeString}?\nStok gudang akan dikurangi sesuai total paket yang diinput.`)) {
+                if (!confirm(`Yakin ingin menyimpan log masak pada jam ${timeString}?\nStok gudang akan dikurangi sesuai estimasi.`)) {
                     e.preventDefault();
                     return false;
                 }
