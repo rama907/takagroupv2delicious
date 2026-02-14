@@ -63,11 +63,11 @@ $RECIPES_PER_UNIT = [
         'Susu' => 2             // 40/20
     ],
     'prep_royale' => [
-        // Request: Daging 80, Tepung 80, Susu 60, Teh 100 (utk 20 paket)
+        // Request: Daging 80, Tepung 120, Susu 120, Teh 120 (utk 20 paket)
         'Daging' => 4,          // 80/20
-        'Tepung' => 4,          // 80/20
-        'Susu' => 3,            // 60/20
-        'Serbuk Teh' => 5       // 100/20
+        'Tepung' => 6,          // 120/20
+        'Susu' => 6,            // 120/20
+        'Serbuk Teh' => 6       // 120/20
     ],
     'prep_happy_bites' => [
         // Request: Tepung 40, Ayam 60, Jeruk 40, Susu 20 (utk 20 paket)
