@@ -120,7 +120,7 @@ $total_minutes = $stmt->get_result()->fetch_assoc()['total_minutes'] ?? 0;
 $stmt->close();
 
 // === MODIFIKASI: QUERY UNTUK TOTAL PENJUALAN (Update Struktur Baru) ===
-// Menjumlahkan kolom spesifik dari tabel sales_data
+// Menjumlahkan kolom spesifik dari tabel sales_data TERMASUK MENU BARU
 $total_sales_packages_dashboard = 0;
 $stmt_sales_packages = $conn->prepare("
     SELECT
@@ -128,7 +128,9 @@ $stmt_sales_packages = $conn->prepare("
         COALESCE(SUM(paket_nusantara), 0) + 
         COALESCE(SUM(paket_kids), 0) + 
         COALESCE(SUM(happy_bites), 0) + 
-        COALESCE(SUM(paket_royale), 0) as total_sales
+        COALESCE(SUM(paket_royale), 0) +
+        COALESCE(SUM(paket_sweet_coffee), 0) + 
+        COALESCE(SUM(paket_matchamisu), 0) as total_sales
     FROM sales_data
     WHERE employee_id = ?
 ");
@@ -146,7 +148,7 @@ $total_paket_terjual_dashboard = $total_sales_packages_dashboard;
 
 
 // === MODIFIKASI: QUERY UNTUK TOTAL MASAK (Update Struktur Baru) ===
-// Mengambil data dari tabel cooking_data (tabel baru untuk log masak)
+// Mengambil data dari tabel cooking_data TERMASUK MENU BARU
 $total_prep_packages_dashboard = 0;
 $stmt_prep_packages = $conn->prepare("
     SELECT
@@ -154,7 +156,9 @@ $stmt_prep_packages = $conn->prepare("
         COALESCE(SUM(paket_nusantara), 0) + 
         COALESCE(SUM(paket_kids), 0) + 
         COALESCE(SUM(happy_bites), 0) + 
-        COALESCE(SUM(paket_royale), 0) as total_cooking
+        COALESCE(SUM(paket_royale), 0) +
+        COALESCE(SUM(paket_sweet_coffee), 0) + 
+        COALESCE(SUM(paket_matchamisu), 0) as total_cooking
     FROM cooking_data
     WHERE employee_id = ?
 ");

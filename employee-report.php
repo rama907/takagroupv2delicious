@@ -34,7 +34,9 @@ $sales_query = "
         SUM(s.paket_nusantara) as total_nusantara,
         SUM(s.paket_kids) as total_kids,
         SUM(s.happy_bites) as total_happy_bites,
-        SUM(s.paket_royale) as total_royale
+        SUM(s.paket_royale) as total_royale,
+        SUM(s.paket_sweet_coffee) as total_sweet_coffee,
+        SUM(s.paket_matchamisu) as total_matchamisu
     FROM sales_data s
     JOIN employees e ON s.employee_id = e.id
     WHERE s.date BETWEEN ? AND ?
@@ -49,7 +51,9 @@ $cooking_query = "
         SUM(c.paket_nusantara) as total_nusantara,
         SUM(c.paket_kids) as total_kids,
         SUM(c.happy_bites) as total_happy_bites,
-        SUM(c.paket_royale) as total_royale
+        SUM(c.paket_royale) as total_royale,
+        SUM(c.paket_sweet_coffee) as total_sweet_coffee,
+        SUM(c.paket_matchamisu) as total_matchamisu
     FROM cooking_data c
     JOIN employees e ON c.employee_id = e.id
     WHERE c.date BETWEEN ? AND ?
@@ -111,8 +115,14 @@ $report_data = [];
 function initEmployeeData(&$data, $name) {
     if (!isset($data[$name])) {
         $data[$name] = [
-            'sales' => ['western' => 0, 'nusantara' => 0, 'kids' => 0, 'happy_bites' => 0, 'royale' => 0, 'total' => 0],
-            'cooking' => ['western' => 0, 'nusantara' => 0, 'kids' => 0, 'happy_bites' => 0, 'royale' => 0, 'total' => 0],
+            'sales' => [
+                'western' => 0, 'nusantara' => 0, 'kids' => 0, 'happy_bites' => 0, 
+                'royale' => 0, 'sweet_coffee' => 0, 'matchamisu' => 0, 'total' => 0
+            ],
+            'cooking' => [
+                'western' => 0, 'nusantara' => 0, 'kids' => 0, 'happy_bites' => 0, 
+                'royale' => 0, 'sweet_coffee' => 0, 'matchamisu' => 0, 'total' => 0
+            ],
             'attendance' => ['shifts' => 0, 'hours' => 0]
         ];
     }
@@ -127,8 +137,10 @@ foreach ($sales_result as $row) {
     $report_data[$row['employee_name']]['sales']['kids'] = (int)$row['total_kids'];
     $report_data[$row['employee_name']]['sales']['happy_bites'] = (int)$row['total_happy_bites'];
     $report_data[$row['employee_name']]['sales']['royale'] = (int)$row['total_royale'];
+    $report_data[$row['employee_name']]['sales']['sweet_coffee'] = (int)$row['total_sweet_coffee'];
+    $report_data[$row['employee_name']]['sales']['matchamisu'] = (int)$row['total_matchamisu'];
     
-    $subtotal = $row['total_western'] + $row['total_nusantara'] + $row['total_kids'] + $row['total_happy_bites'] + $row['total_royale'];
+    $subtotal = $row['total_western'] + $row['total_nusantara'] + $row['total_kids'] + $row['total_happy_bites'] + $row['total_royale'] + $row['total_sweet_coffee'] + $row['total_matchamisu'];
     $report_data[$row['employee_name']]['sales']['total'] = $subtotal;
     $grand_total_sales += $subtotal;
 }
@@ -142,8 +154,10 @@ foreach ($cooking_result as $row) {
     $report_data[$row['employee_name']]['cooking']['kids'] = (int)$row['total_kids'];
     $report_data[$row['employee_name']]['cooking']['happy_bites'] = (int)$row['total_happy_bites'];
     $report_data[$row['employee_name']]['cooking']['royale'] = (int)$row['total_royale'];
+    $report_data[$row['employee_name']]['cooking']['sweet_coffee'] = (int)$row['total_sweet_coffee'];
+    $report_data[$row['employee_name']]['cooking']['matchamisu'] = (int)$row['total_matchamisu'];
 
-    $subtotal = $row['total_western'] + $row['total_nusantara'] + $row['total_kids'] + $row['total_happy_bites'] + $row['total_royale'];
+    $subtotal = $row['total_western'] + $row['total_nusantara'] + $row['total_kids'] + $row['total_happy_bites'] + $row['total_royale'] + $row['total_sweet_coffee'] + $row['total_matchamisu'];
     $report_data[$row['employee_name']]['cooking']['total'] = $subtotal;
     $grand_total_cooking += $subtotal;
 }
@@ -159,9 +173,9 @@ foreach ($attendance_result as $row) {
 }
 
 // --- Data untuk Chart (Agregat per Menu) ---
-$chart_menu_labels = ['Western', 'Nusantara', 'Kids Meal', 'Happy Bites', 'Royale'];
-$chart_sales_data = [0, 0, 0, 0, 0];
-$chart_cooking_data = [0, 0, 0, 0, 0];
+$chart_menu_labels = ['Western', 'Nusantara', 'Kids Meal', 'Happy Bites', 'Royale', 'Sweet Coffee', 'Matcha Misu'];
+$chart_sales_data = [0, 0, 0, 0, 0, 0, 0];
+$chart_cooking_data = [0, 0, 0, 0, 0, 0, 0];
 
 foreach ($report_data as $emp) {
     $chart_sales_data[0] += $emp['sales']['western'];
@@ -169,12 +183,16 @@ foreach ($report_data as $emp) {
     $chart_sales_data[2] += $emp['sales']['kids'];
     $chart_sales_data[3] += $emp['sales']['happy_bites'];
     $chart_sales_data[4] += $emp['sales']['royale'];
+    $chart_sales_data[5] += $emp['sales']['sweet_coffee'];
+    $chart_sales_data[6] += $emp['sales']['matchamisu'];
 
     $chart_cooking_data[0] += $emp['cooking']['western'];
     $chart_cooking_data[1] += $emp['cooking']['nusantara'];
     $chart_cooking_data[2] += $emp['cooking']['kids'];
     $chart_cooking_data[3] += $emp['cooking']['happy_bites'];
     $chart_cooking_data[4] += $emp['cooking']['royale'];
+    $chart_cooking_data[5] += $emp['cooking']['sweet_coffee'];
+    $chart_cooking_data[6] += $emp['cooking']['matchamisu'];
 }
 
 ?>
@@ -238,10 +256,10 @@ foreach ($report_data as $emp) {
         .report-table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 0.9rem;
+            font-size: 0.85rem;
         }
         .report-table th, .report-table td {
-            padding: var(--spacing-sm) var(--spacing-md);
+            padding: var(--spacing-sm) 8px;
             border: 1px solid var(--border-color);
             text-align: center;
         }
@@ -252,6 +270,7 @@ foreach ($report_data as $emp) {
         .report-table td:first-child {
             text-align: left;
             font-weight: 500;
+            min-width: 150px;
         }
         .group-header {
             background-color: var(--primary-light) !important;
@@ -324,8 +343,8 @@ foreach ($report_data as $emp) {
                         <thead>
                             <tr>
                                 <th rowspan="2">Nama Karyawan</th>
-                                <th colspan="6" class="group-header">Penjualan (Sales)</th>
-                                <th colspan="6" class="group-header" style="background-color: #e3f2fd !important; color: #1565c0;">Masak (Cooking)</th>
+                                <th colspan="8" class="group-header">Penjualan (Sales)</th>
+                                <th colspan="8" class="group-header" style="background-color: #e3f2fd !important; color: #1565c0;">Masak (Cooking)</th>
                                 <th rowspan="2">Jam Kerja</th>
                             </tr>
                             <tr>
@@ -334,6 +353,8 @@ foreach ($report_data as $emp) {
                                 <th>Kids</th>
                                 <th>Happy</th>
                                 <th>Royale</th>
+                                <th>Sweet</th>
+                                <th>Matcha</th>
                                 <th>Total</th>
                                 
                                 <th style="background-color: #f1f8e9; color: #000;">West</th>
@@ -341,13 +362,15 @@ foreach ($report_data as $emp) {
                                 <th style="background-color: #f1f8e9; color: #000;">Kids</th>
                                 <th style="background-color: #f1f8e9; color: #000;">Happy</th>
                                 <th style="background-color: #f1f8e9; color: #000;">Royale</th>
+                                <th style="background-color: #f1f8e9; color: #000;">Sweet</th>
+                                <th style="background-color: #f1f8e9; color: #000;">Matcha</th>
                                 <th style="background-color: #f1f8e9; color: #000;">Total</th>
                             </tr>
                         </thead>
                         <tbody>
                             <?php if (empty($report_data)): ?>
                                 <tr>
-                                    <td colspan="14">Tidak ada data untuk periode ini.</td>
+                                    <td colspan="18">Tidak ada data untuk periode ini.</td>
                                 </tr>
                             <?php else: ?>
                                 <?php foreach ($report_data as $name => $data): ?>
@@ -359,6 +382,8 @@ foreach ($report_data as $emp) {
                                         <td><?= $data['sales']['kids'] ?></td>
                                         <td><?= $data['sales']['happy_bites'] ?></td>
                                         <td><?= $data['sales']['royale'] ?></td>
+                                        <td><?= $data['sales']['sweet_coffee'] ?></td>
+                                        <td><?= $data['sales']['matchamisu'] ?></td>
                                         <td><strong><?= $data['sales']['total'] ?></strong></td>
                                         
                                         <td style="background-color: #f9fbe7; color: #000;"><?= $data['cooking']['western'] ?></td>
@@ -366,6 +391,8 @@ foreach ($report_data as $emp) {
                                         <td style="background-color: #f9fbe7; color: #000;"><?= $data['cooking']['kids'] ?></td>
                                         <td style="background-color: #f9fbe7; color: #000;"><?= $data['cooking']['happy_bites'] ?></td>
                                         <td style="background-color: #f9fbe7; color: #000;"><?= $data['cooking']['royale'] ?></td>
+                                        <td style="background-color: #f9fbe7; color: #000;"><?= $data['cooking']['sweet_coffee'] ?></td>
+                                        <td style="background-color: #f9fbe7; color: #000;"><?= $data['cooking']['matchamisu'] ?></td>
                                         <td style="background-color: #f9fbe7; color: #000;"><strong><?= $data['cooking']['total'] ?></strong></td>
                                         
                                         <td><?= $data['attendance']['hours'] ?> Jam</td>

@@ -25,7 +25,7 @@ $TARGET_SALES_STAFF = 60;      // Target Staff > 60
 $total_payroll_expenditure = 0;
 
 // Query diperbarui: Mengambil data Duty DAN Sales per karyawan
-// UPDATE: Kolom disesuaikan dengan struktur sales_data terbaru
+// UPDATE: Menambahkan Sweet Coffee dan Matcha Misu ke total sales untuk bonus
 $employees_raw_data_payroll = $conn->query("
     SELECT e.id, e.name, e.role,
            COALESCE(duty_summary.total_duty_minutes, 0) as total_duty_minutes,
@@ -37,10 +37,17 @@ $employees_raw_data_payroll = $conn->query("
     ) as duty_summary ON e.id = duty_summary.employee_id
     LEFT JOIN (
         SELECT employee_id,
-            -- Menjumlahkan semua paket penjualan (Struktur Baru)
-            (SUM(paket_western) + SUM(paket_nusantara) + SUM(paket_kids) + SUM(happy_bites) + SUM(paket_royale)) as total_sales
+            -- Menjumlahkan semua paket penjualan TERMASUK MENU BARU
+            (
+                SUM(paket_western) + 
+                SUM(paket_nusantara) + 
+                SUM(paket_kids) + 
+                SUM(happy_bites) + 
+                SUM(paket_royale) +
+                SUM(paket_sweet_coffee) + 
+                SUM(paket_matchamisu)
+            ) as total_sales
         FROM sales_data
-        -- Filter spicy dihapus karena tabel sudah terpisah
         GROUP BY employee_id
     ) as sales_summary ON e.id = sales_summary.employee_id
     WHERE e.status = 'active'
@@ -79,8 +86,11 @@ if ($employees_raw_data_payroll) {
 $price_western = 2300;
 $price_nusantara = 2100;
 $price_kids_meal = 2000;
-$price_happy_bites = 1500; // Harga Baru untuk Happy Bites
-$price_royale = 2300; 
+$price_happy_bites = 1500; 
+$price_royale = 2300;
+// HARGA BARU (Silakan sesuaikan jika perlu)
+$price_sweet_coffee = 2000; 
+$price_matchamisu = 2000;
 
 $company_ratio = 0.8; 
 $employee_ratio = 0.2; 
@@ -90,14 +100,16 @@ $company_share_total = 0;
 $employee_commission_total = 0; 
 
 // Query Total Pendapatan (Revenue)
-// UPDATE: Kolom disesuaikan
+// UPDATE: Menambahkan kolom baru
 $stmt = $conn->prepare("
     SELECT
         COALESCE(SUM(paket_western), 0) as sum_western,
         COALESCE(SUM(paket_nusantara), 0) as sum_nusantara,
         COALESCE(SUM(paket_kids), 0) as sum_kids_meal,
         COALESCE(SUM(happy_bites), 0) as sum_happy_bites,
-        COALESCE(SUM(paket_royale), 0) as sum_royale
+        COALESCE(SUM(paket_royale), 0) as sum_royale,
+        COALESCE(SUM(paket_sweet_coffee), 0) as sum_sweet_coffee,
+        COALESCE(SUM(paket_matchamisu), 0) as sum_matchamisu
     FROM sales_data
 ");
 
@@ -111,7 +123,9 @@ if ($stmt) {
                                 ($result['sum_nusantara'] * $price_nusantara) + 
                                 ($result['sum_kids_meal'] * $price_kids_meal) +
                                 ($result['sum_happy_bites'] * $price_happy_bites) +
-                                ($result['sum_royale'] * $price_royale);
+                                ($result['sum_royale'] * $price_royale) +
+                                ($result['sum_sweet_coffee'] * $price_sweet_coffee) +
+                                ($result['sum_matchamisu'] * $price_matchamisu);
         
         $company_share_total = $overall_total_income * $company_ratio;
         $employee_commission_total = $overall_total_income * $employee_ratio;
@@ -128,7 +142,7 @@ $start_of_week = clone $today;
 if ($start_of_week->format('N') != 1) $start_of_week->modify('last Monday');
 $end_of_week = clone $start_of_week; $end_of_week->modify('+6 days');
 
-// UPDATE: Kolom disesuaikan
+// UPDATE: Menambahkan kolom baru ke query grafik
 $stmt_daily = $conn->prepare("
     SELECT 
         sd.date, 
@@ -136,7 +150,9 @@ $stmt_daily = $conn->prepare("
         SUM(sd.paket_nusantara) as sn, 
         SUM(sd.paket_kids) as sk,
         SUM(sd.happy_bites) as sh,
-        SUM(sd.paket_royale) as sr
+        SUM(sd.paket_royale) as sr,
+        SUM(sd.paket_sweet_coffee) as ssc,
+        SUM(sd.paket_matchamisu) as smm
     FROM sales_data sd 
     WHERE sd.date BETWEEN ? AND ? 
     GROUP BY sd.date
@@ -151,7 +167,9 @@ if ($stmt_daily) {
                  ($r['sn'] * $price_nusantara) + 
                  ($r['sk'] * $price_kids_meal) +
                  ($r['sh'] * $price_happy_bites) +
-                 ($r['sr'] * $price_royale);
+                 ($r['sr'] * $price_royale) +
+                 ($r['ssc'] * $price_sweet_coffee) +
+                 ($r['smm'] * $price_matchamisu);
         $chart_data_from_db[$r['date']] = $omset * $company_ratio;
     }
 }
@@ -166,7 +184,7 @@ for ($i = 0; $i < 7; $i++) {
 $omset_logs = [];
 $member_summary = []; 
 
-// UPDATE: Kolom disesuaikan dan Happy Bites dimasukkan
+// UPDATE: Menambahkan kolom baru ke query logs
 $stmt_logs = $conn->query("
     SELECT sd.date, sd.input_time, e.name as employee_name,
         (
@@ -174,7 +192,9 @@ $stmt_logs = $conn->query("
             (sd.paket_nusantara * {$price_nusantara}) + 
             (sd.paket_kids * {$price_kids_meal}) +
             (sd.happy_bites * {$price_happy_bites}) +
-            (sd.paket_royale * {$price_royale})
+            (sd.paket_royale * {$price_royale}) +
+            (sd.paket_sweet_coffee * {$price_sweet_coffee}) +
+            (sd.paket_matchamisu * {$price_matchamisu})
         ) as total_val
     FROM sales_data sd JOIN employees e ON sd.employee_id = e.id
     HAVING total_val > 0

@@ -179,7 +179,7 @@ if (isset($_GET['msg']) && isset($_GET['type'])) {
 $employees_data = [];
 $total_payroll_expenditure = 0;
 
-// --- QUERY UTAMA (UPDATE: Sales Data & Happy Bites) ---
+// --- QUERY UTAMA (UPDATE: Termasuk Paket Sweet Coffee & Matcha Misu) ---
 $stmt = $conn->query("
     SELECT e.id, e.name, e.role, e.is_on_duty, e.is_paid,
            COALESCE(duty_summary.total_duty_minutes, 0) as total_duty_minutes,
@@ -187,7 +187,9 @@ $stmt = $conn->query("
            COALESCE(sales_summary.sales_nusantara, 0) as sales_nusantara,
            COALESCE(sales_summary.sales_kids, 0) as sales_kids,
            COALESCE(sales_summary.sales_happy_bites, 0) as sales_happy_bites,
-           COALESCE(sales_summary.sales_royale, 0) as sales_royale
+           COALESCE(sales_summary.sales_royale, 0) as sales_royale,
+           COALESCE(sales_summary.sales_sweet_coffee, 0) as sales_sweet_coffee,
+           COALESCE(sales_summary.sales_matchamisu, 0) as sales_matchamisu
     FROM employees e
     LEFT JOIN (
         SELECT employee_id, SUM(duration_minutes) as total_duty_minutes
@@ -199,7 +201,9 @@ $stmt = $conn->query("
             SUM(paket_nusantara) as sales_nusantara,
             SUM(paket_kids) as sales_kids,
             SUM(happy_bites) as sales_happy_bites,
-            SUM(paket_royale) as sales_royale
+            SUM(paket_royale) as sales_royale,
+            SUM(paket_sweet_coffee) as sales_sweet_coffee,
+            SUM(paket_matchamisu) as sales_matchamisu
         FROM sales_data
         GROUP BY employee_id
     ) as sales_summary ON e.id = sales_summary.employee_id
@@ -216,13 +220,15 @@ foreach ($employees_raw_data as $employee) {
     // Hitung Jam Kerja yang Dibulatkan
     $rounded_duty_hours = roundToNearestHour($total_duty_minutes);
     
-    // [MODIFIKASI] Total Penjualan (Struktur Baru termasuk Happy Bites)
+    // [MODIFIKASI] Total Penjualan (Struktur Baru termasuk Sweet Coffee & Matcha Misu)
     $total_sales_packages = 
         ($employee['sales_western'] ?? 0) + 
         ($employee['sales_nusantara'] ?? 0) + 
         ($employee['sales_kids'] ?? 0) + 
         ($employee['sales_happy_bites'] ?? 0) + 
-        ($employee['sales_royale'] ?? 0); 
+        ($employee['sales_royale'] ?? 0) +
+        ($employee['sales_sweet_coffee'] ?? 0) +
+        ($employee['sales_matchamisu'] ?? 0);
 
     // --- LOGIKA PERHITUNGAN GAJI BARU ---
     $gaji_pokok = 0;        // Gaji Duty

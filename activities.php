@@ -33,7 +33,6 @@ if (!function_exists('getRoleDisplayName')) {
             'guard' => 'Guard',
             'karyawan' => 'Karyawan',
             'magang' => 'Magang',
-            // Tambahkan peran lain jika ada
         ];
         return $roles[$role] ?? ucfirst(str_replace('_', ' ', $role));
     }
@@ -153,31 +152,32 @@ $sales_prep_summary = [
     'paket_western_sales' => 0,
     'paket_nusantara_sales' => 0,
     'paket_kids_meal_sales' => 0,
-    'paket_royale_sales' => 0, // NEW: Royale Sales
+    'happy_bites_sales' => 0,
+    'paket_royale_sales' => 0,
+    'paket_sweet_coffee_sales' => 0,
+    'paket_matchamisu_sales' => 0,
     'total_penjualan' => 0,
     
     'paket_western_prep' => 0,
     'paket_nusantara_prep' => 0,
     'paket_kids_meal_prep' => 0,
-    'paket_royale_prep' => 0, // NEW: Royale Prep
+    'happy_bites_prep' => 0,
+    'paket_royale_prep' => 0,
+    'paket_sweet_coffee_prep' => 0,
+    'paket_matchamisu_prep' => 0,
     'total_masak' => 0,
 ];
 
-// Query diperbarui untuk menangani Paket Royale (paket_vip_person)
-// Logika: 
-// - Sales Royale: paket_vip_person > 0 DAN (paket_spicy_1 + paket_spicy_2 + paket_spicy_3) = 0
-// - Prep Royale: paket_vip_person > 0 DAN (paket_sake + paket_anggur_merah + paket_tuak) = 0
+// 1. Ambil Data Penjualan (Tabel sales_data)
 $stmt = $conn->prepare("
     SELECT
-        SUM(paket_sake) as paket_western_sales,
-        SUM(paket_anggur_merah) as paket_nusantara_sales,
-        SUM(paket_tuak) as paket_kids_meal_sales,
-        SUM(CASE WHEN (paket_spicy_1 + paket_spicy_2 + paket_spicy_3) = 0 THEN paket_vip_person ELSE 0 END) as paket_royale_sales,
-
-        SUM(paket_spicy_1) as paket_western_prep,
-        SUM(paket_spicy_2) as paket_nusantara_prep,
-        SUM(paket_spicy_3) as paket_kids_meal_prep,
-        SUM(CASE WHEN (paket_sake + paket_anggur_merah + paket_tuak) = 0 THEN paket_vip_person ELSE 0 END) as paket_royale_prep
+        SUM(paket_western) as paket_western_sales,
+        SUM(paket_nusantara) as paket_nusantara_sales,
+        SUM(paket_kids) as paket_kids_meal_sales,
+        SUM(happy_bites) as happy_bites_sales,
+        SUM(paket_royale) as paket_royale_sales,
+        SUM(paket_sweet_coffee) as paket_sweet_coffee_sales,
+        SUM(paket_matchamisu) as paket_matchamisu_sales
     FROM sales_data
     WHERE employee_id = ?
 ");
@@ -187,33 +187,65 @@ if ($stmt) {
     $stmt->execute();
     $result_sales = $stmt->get_result()->fetch_assoc();
     if ($result_sales) {
-        // Mapping kolom DB ke variabel PHP
-        $sales_prep_summary['paket_western_sales'] = $result_sales['paket_western_sales'];
-        $sales_prep_summary['paket_nusantara_sales'] = $result_sales['paket_nusantara_sales'];
-        $sales_prep_summary['paket_kids_meal_sales'] = $result_sales['paket_kids_meal_sales'];
-        $sales_prep_summary['paket_royale_sales'] = $result_sales['paket_royale_sales']; // Royale Sales
-        
-        $sales_prep_summary['paket_western_prep'] = $result_sales['paket_western_prep'];
-        $sales_prep_summary['paket_nusantara_prep'] = $result_sales['paket_nusantara_prep'];
-        $sales_prep_summary['paket_kids_meal_prep'] = $result_sales['paket_kids_meal_prep'];
-        $sales_prep_summary['paket_royale_prep'] = $result_sales['paket_royale_prep']; // Royale Prep
-        
-        // Menghitung total
-        $sales_prep_summary['total_penjualan'] = 
-            $sales_prep_summary['paket_western_sales'] + 
-            $sales_prep_summary['paket_nusantara_sales'] + 
-            $sales_prep_summary['paket_kids_meal_sales'] +
-            $sales_prep_summary['paket_royale_sales'];
-            
-        $sales_prep_summary['total_masak'] = 
-            $sales_prep_summary['paket_western_prep'] + 
-            $sales_prep_summary['paket_nusantara_prep'] + 
-            $sales_prep_summary['paket_kids_meal_prep'] +
-            $sales_prep_summary['paket_royale_prep'];
+        $sales_prep_summary['paket_western_sales'] = $result_sales['paket_western_sales'] ?? 0;
+        $sales_prep_summary['paket_nusantara_sales'] = $result_sales['paket_nusantara_sales'] ?? 0;
+        $sales_prep_summary['paket_kids_meal_sales'] = $result_sales['paket_kids_meal_sales'] ?? 0;
+        $sales_prep_summary['happy_bites_sales'] = $result_sales['happy_bites_sales'] ?? 0;
+        $sales_prep_summary['paket_royale_sales'] = $result_sales['paket_royale_sales'] ?? 0;
+        $sales_prep_summary['paket_sweet_coffee_sales'] = $result_sales['paket_sweet_coffee_sales'] ?? 0;
+        $sales_prep_summary['paket_matchamisu_sales'] = $result_sales['paket_matchamisu_sales'] ?? 0;
     }
     $stmt->close();
 }
 
+// 2. Ambil Data Masak (Tabel cooking_data)
+$stmt = $conn->prepare("
+    SELECT
+        SUM(paket_western) as paket_western_prep,
+        SUM(paket_nusantara) as paket_nusantara_prep,
+        SUM(paket_kids) as paket_kids_meal_prep,
+        SUM(happy_bites) as happy_bites_prep,
+        SUM(paket_royale) as paket_royale_prep,
+        SUM(paket_sweet_coffee) as paket_sweet_coffee_prep,
+        SUM(paket_matchamisu) as paket_matchamisu_prep
+    FROM cooking_data
+    WHERE employee_id = ?
+");
+
+if ($stmt) {
+    $stmt->bind_param("i", $user['id']);
+    $stmt->execute();
+    $result_prep = $stmt->get_result()->fetch_assoc();
+    if ($result_prep) {
+        $sales_prep_summary['paket_western_prep'] = $result_prep['paket_western_prep'] ?? 0;
+        $sales_prep_summary['paket_nusantara_prep'] = $result_prep['paket_nusantara_prep'] ?? 0;
+        $sales_prep_summary['paket_kids_meal_prep'] = $result_prep['paket_kids_meal_prep'] ?? 0;
+        $sales_prep_summary['happy_bites_prep'] = $result_prep['happy_bites_prep'] ?? 0;
+        $sales_prep_summary['paket_royale_prep'] = $result_prep['paket_royale_prep'] ?? 0;
+        $sales_prep_summary['paket_sweet_coffee_prep'] = $result_prep['paket_sweet_coffee_prep'] ?? 0;
+        $sales_prep_summary['paket_matchamisu_prep'] = $result_prep['paket_matchamisu_prep'] ?? 0;
+    }
+    $stmt->close();
+}
+
+// Hitung Total
+$sales_prep_summary['total_penjualan'] = 
+    $sales_prep_summary['paket_western_sales'] + 
+    $sales_prep_summary['paket_nusantara_sales'] + 
+    $sales_prep_summary['paket_kids_meal_sales'] +
+    $sales_prep_summary['happy_bites_sales'] +
+    $sales_prep_summary['paket_royale_sales'] +
+    $sales_prep_summary['paket_sweet_coffee_sales'] +
+    $sales_prep_summary['paket_matchamisu_sales'];
+
+$sales_prep_summary['total_masak'] = 
+    $sales_prep_summary['paket_western_prep'] + 
+    $sales_prep_summary['paket_nusantara_prep'] + 
+    $sales_prep_summary['paket_kids_meal_prep'] +
+    $sales_prep_summary['happy_bites_prep'] +
+    $sales_prep_summary['paket_royale_prep'] +
+    $sales_prep_summary['paket_sweet_coffee_prep'] +
+    $sales_prep_summary['paket_matchamisu_prep'];
 
 ?>
 
@@ -226,6 +258,13 @@ if ($stmt) {
     <link rel="icon" href="LOGO_WOT.png" type="image/png">
     <link rel="shortcut icon" href="favicon.ico" type="image/x-icon">
     <link rel="stylesheet" href="style.css">
+    <style>
+        .stat-breakdown span {
+            display: inline-block;
+            margin-right: 10px;
+            white-space: nowrap;
+        }
+    </style>
 </head>
 <body>
     <div class="dashboard-container">
@@ -266,11 +305,14 @@ if ($stmt) {
                         <p class="summary-value">
                             <?= $sales_prep_summary['total_penjualan'] ?> Paket
                         </p>
-                        <p class="stat-breakdown" style="font-size: 0.9em; margin-top: 0.5rem; text-align: left;">
+                        <p class="stat-breakdown" style="font-size: 0.85em; margin-top: 0.5rem; text-align: left; line-height: 1.5;">
                             <span>Western: <strong><?= $sales_prep_summary['paket_western_sales'] ?></strong></span>
                             <span>Nusantara: <strong><?= $sales_prep_summary['paket_nusantara_sales'] ?></strong></span>
                             <span>Kids Meal: <strong><?= $sales_prep_summary['paket_kids_meal_sales'] ?></strong></span>
+                            <span>Happy Bites: <strong><?= $sales_prep_summary['happy_bites_sales'] ?></strong></span>
                             <span>Royale: <strong><?= $sales_prep_summary['paket_royale_sales'] ?></strong></span>
+                            <span>Sweet Coffee: <strong><?= $sales_prep_summary['paket_sweet_coffee_sales'] ?></strong></span>
+                            <span>Matcha Misu: <strong><?= $sales_prep_summary['paket_matchamisu_sales'] ?></strong></span>
                         </p>
                     </div>
                 </div>
@@ -281,11 +323,14 @@ if ($stmt) {
                         <p class="summary-value">
                             <?= $sales_prep_summary['total_masak'] ?> Paket
                         </p>
-                        <p class="stat-breakdown" style="font-size: 0.9em; margin-top: 0.5rem; text-align: left;">
+                        <p class="stat-breakdown" style="font-size: 0.85em; margin-top: 0.5rem; text-align: left; line-height: 1.5;">
                             <span>Western: <strong><?= $sales_prep_summary['paket_western_prep'] ?></strong></span>
                             <span>Nusantara: <strong><?= $sales_prep_summary['paket_nusantara_prep'] ?></strong></span>
                             <span>Kids Meal: <strong><?= $sales_prep_summary['paket_kids_meal_prep'] ?></strong></span>
+                            <span>Happy Bites: <strong><?= $sales_prep_summary['happy_bites_prep'] ?></strong></span>
                             <span>Royale: <strong><?= $sales_prep_summary['paket_royale_prep'] ?></strong></span>
+                            <span>Sweet Coffee: <strong><?= $sales_prep_summary['paket_sweet_coffee_prep'] ?></strong></span>
+                            <span>Matcha Misu: <strong><?= $sales_prep_summary['paket_matchamisu_prep'] ?></strong></span>
                         </p>
                     </div>
                 </div>

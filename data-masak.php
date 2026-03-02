@@ -75,6 +75,20 @@ $RECIPES_PER_UNIT = [
         'Ayam Kemasan' => 3,    // 60/20
         'Jeruk Kemasan' => 2,   // 40/20
         'Susu' => 1             // 20/20
+    ],
+    'prep_sweet_coffee' => [
+        // Request: Beras 40, Tepung 60, Jeruk 40, Susu 40 (utk 20 paket)
+        'Beras' => 2,           // 40/20
+        'Tepung' => 3,          // 60/20
+        'Jeruk Kemasan' => 2,   // 40/20
+        'Susu' => 2             // 40/20
+    ],
+    'prep_matchamisu' => [
+        // Request: Teh 40, Tepung 60, Jeruk 40, Susu 40 (utk 20 paket)
+        'Serbuk Teh' => 2,      // 40/20
+        'Tepung' => 3,          // 60/20
+        'Jeruk Kemasan' => 2,   // 40/20
+        'Susu' => 2             // 40/20
     ]
 ];
 $MIN_INPUT_UNIT = 20; // Kelipatan minimal untuk input
@@ -119,6 +133,8 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
                     'paket_kids' => $entry_details['paket_kids'] ?? 0,
                     'happy_bites' => $entry_details['happy_bites'] ?? 0,
                     'paket_royale' => $entry_details['paket_royale'] ?? 0,
+                    'paket_sweet_coffee' => $entry_details['paket_sweet_coffee'] ?? 0,
+                    'paket_matchamisu' => $entry_details['paket_matchamisu'] ?? 0,
                 ], 'cooking_deleted');
 
             } else {
@@ -156,7 +172,10 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
     $prep_nusantara = (int)($_POST['prep_nusantara'] ?? 0);
     $prep_kids_meal = (int)($_POST['prep_kids_meal'] ?? 0);
     $prep_happy_bites = (int)($_POST['prep_happy_bites'] ?? 0);
-    $prep_royale = (int)($_POST['prep_royale'] ?? 0); 
+    $prep_royale = (int)($_POST['prep_royale'] ?? 0);
+    // NEW ITEMS
+    $prep_sweet_coffee = (int)($_POST['prep_sweet_coffee'] ?? 0);
+    $prep_matchamisu = (int)($_POST['prep_matchamisu'] ?? 0);
     
     $error_message = null; 
 
@@ -187,7 +206,7 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
     }
 
     // PENTING: Cek apakah ada input paket baru
-    $total_new_prep = $prep_western + $prep_nusantara + $prep_kids_meal + $prep_happy_bites + $prep_royale;
+    $total_new_prep = $prep_western + $prep_nusantara + $prep_kids_meal + $prep_happy_bites + $prep_royale + $prep_sweet_coffee + $prep_matchamisu;
     if ($total_new_prep === 0 && !isset($error_message)) {
         $error_message = "Harap masukkan minimal {$MIN_INPUT_UNIT} paket yang dimasak!";
     }
@@ -197,7 +216,9 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
         ($prep_nusantara % $MIN_INPUT_UNIT !== 0) || 
         ($prep_kids_meal % $MIN_INPUT_UNIT !== 0) || 
         ($prep_happy_bites % $MIN_INPUT_UNIT !== 0) || 
-        ($prep_royale % $MIN_INPUT_UNIT !== 0)) {
+        ($prep_royale % $MIN_INPUT_UNIT !== 0) ||
+        ($prep_sweet_coffee % $MIN_INPUT_UNIT !== 0) ||
+        ($prep_matchamisu % $MIN_INPUT_UNIT !== 0)) {
         if (!isset($error_message)) {
             $error_message = "Jumlah paket harus kelipatan {$MIN_INPUT_UNIT} (20, 40, 60, dst.).";
         }
@@ -224,7 +245,9 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
             'prep_nusantara' => $prep_nusantara, 
             'prep_kids_meal' => $prep_kids_meal,
             'prep_happy_bites' => $prep_happy_bites,
-            'prep_royale' => $prep_royale
+            'prep_royale' => $prep_royale,
+            'prep_sweet_coffee' => $prep_sweet_coffee,
+            'prep_matchamisu' => $prep_matchamisu
         ];
         
         foreach ($prep_quantities as $prep_key => $input_unit_qty) {
@@ -286,7 +309,9 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
             'Paket Nusantara' => $prep_nusantara,
             'Paket Kids Meal' => $prep_kids_meal,
             'Happy Bites' => $prep_happy_bites,
-            'Paket Royale' => $prep_royale
+            'Paket Royale' => $prep_royale,
+            'Paket Sweet Coffee' => $prep_sweet_coffee,
+            'Paket Matcha Misu' => $prep_matchamisu
         ];
 
         foreach ($deposit_products_map as $stock_name => $qty_to_deposit) {
@@ -328,14 +353,15 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
             INSERT INTO cooking_data (
                 employee_id, date, input_time, week_number, year, 
                 paket_western, paket_nusantara, paket_kids, 
-                happy_bites, paket_royale
+                happy_bites, paket_royale, paket_sweet_coffee, paket_matchamisu
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
         
         if (!$stmt) { throw new Exception("Gagal menyiapkan query insert log masak: " . $conn->error); }
         
-        $stmt->bind_param("issiiiiiii", 
+        // Binding: 12 params (issiiiiiiiii)
+        $stmt->bind_param("issiiiiiiiii", 
             $employee_id_from_form, 
             $formatted_date, 
             $input_time,
@@ -345,7 +371,9 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
             $prep_nusantara,  
             $prep_kids_meal,
             $prep_happy_bites,
-            $prep_royale  
+            $prep_royale,
+            $prep_sweet_coffee,
+            $prep_matchamisu
         );
         
         if (!$stmt->execute()) {
@@ -367,7 +395,9 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
             'paket_nusantara' => $prep_nusantara,
             'paket_kids' => $prep_kids_meal,
             'happy_bites' => $prep_happy_bites,
-            'paket_royale' => $prep_royale
+            'paket_royale' => $prep_royale,
+            'paket_sweet_coffee' => $prep_sweet_coffee,
+            'paket_matchamisu' => $prep_matchamisu,
         ], "cooking_input");
 
         if (!empty($deposited_products)) {
@@ -402,6 +432,8 @@ $overall_prep_summary = [
     'prep_kids_meal' => 0,
     'prep_happy_bites' => 0,
     'prep_royale' => 0,
+    'prep_sweet_coffee' => 0,
+    'prep_matchamisu' => 0,
 ];
 
 $stmt = $conn->prepare("
@@ -410,7 +442,9 @@ $stmt = $conn->prepare("
         SUM(paket_nusantara) as prep_nusantara, 
         SUM(paket_kids) as prep_kids_meal,
         SUM(happy_bites) as prep_happy_bites,
-        SUM(paket_royale) as prep_royale
+        SUM(paket_royale) as prep_royale,
+        SUM(paket_sweet_coffee) as prep_sweet_coffee,
+        SUM(paket_matchamisu) as prep_matchamisu
     FROM cooking_data 
     WHERE employee_id = ?
 ");
@@ -426,13 +460,15 @@ $total_overall_prep = ($overall_prep_summary['prep_western'] ?? 0) +
                       ($overall_prep_summary['prep_nusantara'] ?? 0) + 
                       ($overall_prep_summary['prep_kids_meal'] ?? 0) + 
                       ($overall_prep_summary['prep_happy_bites'] ?? 0) + 
-                      ($overall_prep_summary['prep_royale'] ?? 0);
+                      ($overall_prep_summary['prep_royale'] ?? 0) +
+                      ($overall_prep_summary['prep_sweet_coffee'] ?? 0) +
+                      ($overall_prep_summary['prep_matchamisu'] ?? 0);
 
 
 $today = date('Y-m-d');
 // Query untuk Riwayat Masak Terbaru (Hanya Masak)
 $stmt = $conn->prepare("
-    SELECT id, input_time, paket_western, paket_nusantara, paket_kids, happy_bites, paket_royale
+    SELECT id, input_time, paket_western, paket_nusantara, paket_kids, happy_bites, paket_royale, paket_sweet_coffee, paket_matchamisu
     FROM cooking_data 
     WHERE employee_id = ? AND date = ? 
     ORDER BY input_time DESC
@@ -449,6 +485,8 @@ $daily_total = [
     'prep_kids_meal' => 0,
     'prep_happy_bites' => 0,
     'prep_royale' => 0,
+    'prep_sweet_coffee' => 0,
+    'prep_matchamisu' => 0,
     'total_entries' => count($recent_prep)
 ];
 foreach ($recent_prep as $entry) {
@@ -457,6 +495,8 @@ foreach ($recent_prep as $entry) {
     $daily_total['prep_kids_meal'] += $entry['paket_kids']; 
     $daily_total['prep_happy_bites'] += $entry['happy_bites']; 
     $daily_total['prep_royale'] += $entry['paket_royale']; 
+    $daily_total['prep_sweet_coffee'] += $entry['paket_sweet_coffee'];
+    $daily_total['prep_matchamisu'] += $entry['paket_matchamisu'];
 }
 
 ?>
@@ -619,6 +659,14 @@ foreach ($recent_prep as $entry) {
                             <span class="stat-label">Paket Royale</span>
                             <span class="stat-value" style="font-size: 1.2em;"><?= $overall_prep_summary['prep_royale'] ?? 0 ?></span>
                         </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Sweet Coffee</span>
+                            <span class="stat-value" style="font-size: 1.2em;"><?= $overall_prep_summary['prep_sweet_coffee'] ?? 0 ?></span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Matcha Misu</span>
+                            <span class="stat-value" style="font-size: 1.2em;"><?= $overall_prep_summary['prep_matchamisu'] ?? 0 ?></span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -740,6 +788,28 @@ foreach ($recent_prep as $entry) {
                                     Resep (per 1 paket): Daging (4), Tepung (4), Susu (3), Teh (5).
                                 </div>
                             </div>
+                            <div class="product-card">
+                                <label for="prep_sweet_coffee">PAKET SWEET COFFEE</label>
+                                <p>(Withdrawal Stok Gudang)</p>
+                                <div class="quantity-group">
+                                    <label for="prep_sweet_coffee">Paket</label>
+                                    <input type="number" name="prep_sweet_coffee" id="prep_sweet_coffee" value="0" min="0" step="<?= $MIN_INPUT_UNIT ?>" class="input-calc" onchange="validateStep(this)">
+                                </div>
+                                <div class="stock-info">
+                                    Resep (per 1 paket): Beras (2), Tepung (3), Jeruk (2), Susu (2).
+                                </div>
+                            </div>
+                            <div class="product-card">
+                                <label for="prep_matchamisu">PAKET MATCHA MISU</label>
+                                <p>(Withdrawal Stok Gudang)</p>
+                                <div class="quantity-group">
+                                    <label for="prep_matchamisu">Paket</label>
+                                    <input type="number" name="prep_matchamisu" id="prep_matchamisu" value="0" min="0" step="<?= $MIN_INPUT_UNIT ?>" class="input-calc" onchange="validateStep(this)">
+                                </div>
+                                <div class="stock-info">
+                                    Resep (per 1 paket): Teh (2), Tepung (3), Jeruk (2), Susu (2).
+                                </div>
+                            </div>
                             
                         </div>
                         
@@ -772,6 +842,8 @@ foreach ($recent_prep as $entry) {
                                         <th>Kids Meal</th>
                                         <th>Happy Bites</th>
                                         <th>Royale</th>
+                                        <th>Sweet Coffee</th>
+                                        <th>Matcha Misu</th>
                                         <th>Aksi</th>
                                     </tr>
                                 </thead>
@@ -794,6 +866,8 @@ foreach ($recent_prep as $entry) {
                                         <td data-label="Kids Meal"><?= $entry['paket_kids'] ?? 0 ?></td>
                                         <td data-label="Happy Bites"><?= $entry['happy_bites'] ?? 0 ?></td>
                                         <td data-label="Royale"><?= $entry['paket_royale'] ?? 0 ?></td>
+                                        <td data-label="Sweet Coffee"><?= $entry['paket_sweet_coffee'] ?? 0 ?></td>
+                                        <td data-label="Matcha Misu"><?= $entry['paket_matchamisu'] ?? 0 ?></td>
                                         <td data-label="Aksi">
                                             <form method="POST" onsubmit="return confirm('Yakin ingin menghapus log masak ini? Catatan: Penghapusan TIDAK mengembalikan stok gudang!')">
                                                 <input type="hidden" name="action" value="delete_masak_entry">

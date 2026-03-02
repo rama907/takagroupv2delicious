@@ -1,5 +1,5 @@
 <?php
-// File: config.php (Final Version for Discord API - Updated for Royale & Happy Bites)
+// File: config.php (Updated for Sweet Coffee & Matcha Misu)
 
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
@@ -234,7 +234,7 @@ function sendDiscordNotification($data, $type = 'info') {
         'room_booking_submitted', 'booking_status_updated', 'payment_status_updated',
         'duty_log_deleted'
     ];
-    $sales_types = ['sale_input', 'sale_deleted', 'cooking_input', 'cooking_deleted']; // UPDATE: Added cooking
+    $sales_types = ['sale_input', 'sale_deleted', 'cooking_input', 'cooking_deleted']; 
     $recap_types = ['daily_absent_recap', 'daily_duty_recap']; 
 
     $refrigerator_types = ['refrigerator_deposit', 'refrigerator_withdraw'];
@@ -484,11 +484,13 @@ function sendDiscordNotification($data, $type = 'info') {
             $western = $decoded_data['paket_western'] ?? 0; 
             $nusantara = $decoded_data['paket_nusantara'] ?? 0;
             $kids_meal = $decoded_data['paket_kids_meal'] ?? 0;
-            $happy_bites = $decoded_data['happy_bites'] ?? 0; // NEW
+            $happy_bites = $decoded_data['happy_bites'] ?? 0;
             $royale = $decoded_data['paket_royale'] ?? 0;
+            $sweet_coffee = $decoded_data['paket_sweet_coffee'] ?? 0;
+            $matchamisu = $decoded_data['paket_matchamisu'] ?? 0;
 
             // Menghitung total item yang terjual
-            $total_items_sold = $western + $nusantara + $kids_meal + $happy_bites + $royale; 
+            $total_items_sold = $western + $nusantara + $kids_meal + $happy_bites + $royale + $sweet_coffee + $matchamisu; 
 
             $embed['title'] = "💰 Data Penjualan Baru Diinput! (Total: {$total_items_sold})";
             $embed['description'] = "**{$employee_name}** telah menginput data penjualan paket Resto. Detail di bawah:";
@@ -502,8 +504,10 @@ function sendDiscordNotification($data, $type = 'info') {
             if ($western > 0) $embed['fields'][] = ['name' => 'Paket Western', 'value' => $western, 'inline' => true];
             if ($nusantara > 0) $embed['fields'][] = ['name' => 'Paket Nusantara', 'value' => $nusantara, 'inline' => true];
             if ($kids_meal > 0) $embed['fields'][] = ['name' => 'Paket Kids Meal', 'value' => $kids_meal, 'inline' => true];
-            if ($happy_bites > 0) $embed['fields'][] = ['name' => 'Happy Bites', 'value' => $happy_bites, 'inline' => true]; // NEW
+            if ($happy_bites > 0) $embed['fields'][] = ['name' => 'Happy Bites', 'value' => $happy_bites, 'inline' => true];
             if ($royale > 0) $embed['fields'][] = ['name' => 'Paket Royale', 'value' => $royale, 'inline' => true];
+            if ($sweet_coffee > 0) $embed['fields'][] = ['name' => 'Sweet Coffee', 'value' => $sweet_coffee, 'inline' => true];
+            if ($matchamisu > 0) $embed['fields'][] = ['name' => 'Matcha Misu', 'value' => $matchamisu, 'inline' => true];
             
             $embed['fields'][] = ['name' => '', 'value' => '', 'inline' => false];
             break;
@@ -516,10 +520,12 @@ function sendDiscordNotification($data, $type = 'info') {
             $western = $decoded_data['paket_western'] ?? ($decoded_data['paket_sake'] ?? 0); 
             $nusantara = $decoded_data['paket_nusantara'] ?? ($decoded_data['paket_anggur_merah'] ?? 0);
             $kids_meal = $decoded_data['paket_kids_meal'] ?? ($decoded_data['paket_tuak'] ?? 0);
-            $happy_bites = $decoded_data['happy_bites'] ?? 0; // NEW
+            $happy_bites = $decoded_data['happy_bites'] ?? 0;
             $royale = $decoded_data['paket_royale'] ?? ($decoded_data['paket_vip_person'] ?? 0);
+            $sweet_coffee = $decoded_data['paket_sweet_coffee'] ?? 0;
+            $matchamisu = $decoded_data['paket_matchamisu'] ?? 0;
             
-            $total_items_deleted = $western + $nusantara + $kids_meal + $happy_bites + $royale;
+            $total_items_deleted = $western + $nusantara + $kids_meal + $happy_bites + $royale + $sweet_coffee + $matchamisu;
 
             $embed['title'] = "🗑️ Data Penjualan Dihapus!";
             $embed['description'] = "Data penjualan dari **{$employee_name}** pada **{$sales_date_time}** telah dihapus.";
@@ -532,8 +538,10 @@ function sendDiscordNotification($data, $type = 'info') {
             if ($western > 0) $embed['fields'][] = ['name' => 'Western (Dihapus)', 'value' => $western, 'inline' => true];
             if ($nusantara > 0) $embed['fields'][] = ['name' => 'Nusantara (Dihapus)', 'value' => $nusantara, 'inline' => true];
             if ($kids_meal > 0) $embed['fields'][] = ['name' => 'Kids Meal (Dihapus)', 'value' => $kids_meal, 'inline' => true];
-            if ($happy_bites > 0) $embed['fields'][] = ['name' => 'Happy Bites (Dihapus)', 'value' => $happy_bites, 'inline' => true]; // NEW
+            if ($happy_bites > 0) $embed['fields'][] = ['name' => 'Happy Bites (Dihapus)', 'value' => $happy_bites, 'inline' => true];
             if ($royale > 0) $embed['fields'][] = ['name' => 'Royale (Dihapus)', 'value' => $royale, 'inline' => true];
+            if ($sweet_coffee > 0) $embed['fields'][] = ['name' => 'Sweet Coffee (Dihapus)', 'value' => $sweet_coffee, 'inline' => true];
+            if ($matchamisu > 0) $embed['fields'][] = ['name' => 'Matcha Misu (Dihapus)', 'value' => $matchamisu, 'inline' => true];
 
             $embed['fields'][] = ['name' => 'Total Item Dihapus', 'value' => $total_items_deleted, 'inline' => false];
             break;
@@ -546,8 +554,10 @@ function sendDiscordNotification($data, $type = 'info') {
             $kids_meal = $decoded_data['paket_kids'] ?? 0;
             $happy_bites = $decoded_data['happy_bites'] ?? 0;
             $royale = $decoded_data['paket_royale'] ?? 0;
+            $sweet_coffee = $decoded_data['paket_sweet_coffee'] ?? 0;
+            $matchamisu = $decoded_data['paket_matchamisu'] ?? 0;
 
-            $total_items = $western + $nusantara + $kids_meal + $happy_bites + $royale; 
+            $total_items = $western + $nusantara + $kids_meal + $happy_bites + $royale + $sweet_coffee + $matchamisu; 
 
             $embed['title'] = "🔪 Data Masak Diinput! (Total: {$total_items})";
             $embed['description'] = "**{$employee_name}** telah menginput data masak (pengurangan stok gudang).";
@@ -562,6 +572,8 @@ function sendDiscordNotification($data, $type = 'info') {
             if ($kids_meal > 0) $embed['fields'][] = ['name' => 'Kids Meal', 'value' => $kids_meal, 'inline' => true];
             if ($happy_bites > 0) $embed['fields'][] = ['name' => 'Happy Bites', 'value' => $happy_bites, 'inline' => true];
             if ($royale > 0) $embed['fields'][] = ['name' => 'Royale', 'value' => $royale, 'inline' => true];
+            if ($sweet_coffee > 0) $embed['fields'][] = ['name' => 'Sweet Coffee', 'value' => $sweet_coffee, 'inline' => true];
+            if ($matchamisu > 0) $embed['fields'][] = ['name' => 'Matcha Misu', 'value' => $matchamisu, 'inline' => true];
             
             $embed['fields'][] = ['name' => '', 'value' => '', 'inline' => false];
             break;
@@ -575,8 +587,10 @@ function sendDiscordNotification($data, $type = 'info') {
             $kids_meal = $decoded_data['paket_kids'] ?? 0;
             $happy_bites = $decoded_data['happy_bites'] ?? 0;
             $royale = $decoded_data['paket_royale'] ?? 0;
+            $sweet_coffee = $decoded_data['paket_sweet_coffee'] ?? 0;
+            $matchamisu = $decoded_data['paket_matchamisu'] ?? 0;
             
-            $total_items = $western + $nusantara + $kids_meal + $happy_bites + $royale;
+            $total_items = $western + $nusantara + $kids_meal + $happy_bites + $royale + $sweet_coffee + $matchamisu;
 
             $embed['title'] = "🗑️ Log Masak Dihapus!";
             $embed['description'] = "Log masak dari **{$employee_name}** pada tanggal **{$date}** telah dihapus.";
@@ -591,6 +605,8 @@ function sendDiscordNotification($data, $type = 'info') {
             if ($kids_meal > 0) $embed['fields'][] = ['name' => 'Kids Meal', 'value' => $kids_meal, 'inline' => true];
             if ($happy_bites > 0) $embed['fields'][] = ['name' => 'Happy Bites', 'value' => $happy_bites, 'inline' => true];
             if ($royale > 0) $embed['fields'][] = ['name' => 'Royale', 'value' => $royale, 'inline' => true];
+            if ($sweet_coffee > 0) $embed['fields'][] = ['name' => 'Sweet Coffee', 'value' => $sweet_coffee, 'inline' => true];
+            if ($matchamisu > 0) $embed['fields'][] = ['name' => 'Matcha Misu', 'value' => $matchamisu, 'inline' => true];
 
             $embed['fields'][] = ['name' => 'Total Item Dihapus', 'value' => $total_items, 'inline' => false];
             break;

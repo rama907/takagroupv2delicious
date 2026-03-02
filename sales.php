@@ -84,9 +84,11 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
                     'sales_date_time' => date('d/m/Y H:i', strtotime($entry_details['input_time'])),
                     'paket_western' => $entry_details['paket_western'] ?? 0,
                     'paket_nusantara' => $entry_details['paket_nusantara'] ?? 0,
-                    'paket_kids_meal' => $entry_details['paket_kids'] ?? 0, // Disesuaikan nama kolom DB 'paket_kids'
+                    'paket_kids_meal' => $entry_details['paket_kids'] ?? 0,
                     'happy_bites' => $entry_details['happy_bites'] ?? 0,
                     'paket_royale' => $entry_details['paket_royale'] ?? 0,
+                    'paket_sweet_coffee' => $entry_details['paket_sweet_coffee'] ?? 0,
+                    'paket_matchamisu' => $entry_details['paket_matchamisu'] ?? 0,
                 ], 'sale_deleted');
 
             } else {
@@ -123,8 +125,11 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
     $paket_western = (int)($_POST['paket_western'] ?? 0);
     $paket_nusantara = (int)($_POST['paket_nusantara'] ?? 0);
     $paket_kids_meal = (int)($_POST['paket_kids_meal'] ?? 0);
-    $happy_bites = (int)($_POST['happy_bites'] ?? 0); // New Menu
+    $happy_bites = (int)($_POST['happy_bites'] ?? 0); 
     $paket_royale = (int)($_POST['paket_royale'] ?? 0);
+    // NEW ITEMS
+    $paket_sweet_coffee = (int)($_POST['paket_sweet_coffee'] ?? 0);
+    $paket_matchamisu = (int)($_POST['paket_matchamisu'] ?? 0);
     // ====================
     
     $error_message = null; 
@@ -166,7 +171,7 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
     }
 
     // PENTING: Cek apakah ada input paket baru
-    $total_new_packages = $paket_western + $paket_nusantara + $paket_kids_meal + $happy_bites + $paket_royale;
+    $total_new_packages = $paket_western + $paket_nusantara + $paket_kids_meal + $happy_bites + $paket_royale + $paket_sweet_coffee + $paket_matchamisu;
     if ($total_new_packages === 0 && !isset($error_message)) {
         $error_message = "Harap masukkan minimal satu paket makanan yang terjual!";
     }
@@ -184,23 +189,23 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
     $conn->begin_transaction();
     try {
         // --- 1. INSERT INTO sales_data ---
-        // Menggunakan kolom spesifik sesuai struktur database terbaru
+        // Updated to include paket_sweet_coffee and paket_matchamisu
         
         $stmt = $conn->prepare("
             INSERT INTO sales_data (
                 employee_id, date, input_time, week_number, year, 
                 paket_western, paket_nusantara, paket_kids, 
-                happy_bites, paket_royale
+                happy_bites, paket_royale, paket_sweet_coffee, paket_matchamisu
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
         
         if (!$stmt) {
              throw new Exception("Gagal menyiapkan query insert sales: " . $conn->error);
         }
         
-        // Binding parameters: isssiiiiii (10 params)
-        $stmt->bind_param("isssiiiiii", 
+        // Binding parameters: isssiiiiiiii (12 params)
+        $stmt->bind_param("isssiiiiiiii", 
             $employee_id_from_form, 
             $formatted_date, 
             $input_time,
@@ -208,9 +213,11 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
             $year,
             $paket_western,         
             $paket_nusantara,       
-            $paket_kids_meal,       // Maps to paket_kids column
+            $paket_kids_meal,       
             $happy_bites,
-            $paket_royale           
+            $paket_royale,
+            $paket_sweet_coffee,
+            $paket_matchamisu
         );
         
         if (!$stmt->execute()) {
@@ -224,8 +231,10 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
             'western' => ['Paket Western', 1, $paket_western],
             'nusantara' => ['Paket Nusantara', 1, $paket_nusantara],
             'kids_meal' => ['Paket Kids Meal', 1, $paket_kids_meal],
-            'happy_bites' => ['Happy Bites', 1, $happy_bites], // Stock Name assumed
+            'happy_bites' => ['Happy Bites', 1, $happy_bites], 
             'royale' => ['Paket Royale', 1, $paket_royale],
+            'sweet_coffee' => ['Paket Sweet Coffee', 1, $paket_sweet_coffee],
+            'matchamisu' => ['Paket Matcha Misu', 1, $paket_matchamisu],
         ];
 
         $total_items_withdrawn = 0;
@@ -258,19 +267,23 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
                     }
                     $stmt_check_current->bind_param("s", $stock_name);
                     $stmt_check_current->execute();
-                    $current_qty = $stmt_check_current->get_result()->fetch_assoc()['quantity'] ?? 0;
+                    $result_check = $stmt_check_current->get_result()->fetch_assoc();
+                    $current_qty = $result_check['quantity'] ?? 0;
                     $stmt_check_current->close();
                     
+                    if (is_null($result_check)) {
+                         // Jika produk tidak ada sama sekali di database
+                         throw new Exception("Produk **{$stock_name}** tidak ditemukan di database stok resto. Harap input stok awal terlebih dahulu.");
+                    }
+
                     if ($current_qty < $qty_to_withdraw) {
                          // Rollback semua transaksi karena stok tidak cukup
                          throw new Exception("Stok paket makanan **{$stock_name}** tidak mencukupi! (Stok saat ini: {$current_qty}, Butuh: {$qty_to_withdraw}). Transaksi dibatalkan.");
                     }
-                    // Jika affected_rows 0 tapi quantity cukup, berarti product_name tidak ditemukan di refrigerator_stock
-                    throw new Exception("Produk **{$stock_name}** tidak ditemukan di database stok resto. Transaksi dibatalkan.");
                 }
                 $stmt_update_stock->close();
 
-                // b. Log the transaction in refrigerator_transactions (mencatat employee_id yang input sales)
+                // b. Log the transaction in refrigerator_transactions
                 $transaction_type = 'withdraw';
                 $stmt_log_trans = $conn->prepare("
                     INSERT INTO refrigerator_transactions (product_name, employee_id, transaction_type, quantity) 
@@ -304,7 +317,9 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
             'paket_nusantara' => $paket_nusantara,
             'paket_kids_meal' => $paket_kids_meal,
             'happy_bites' => $happy_bites,
-            'paket_royale' => $paket_royale, 
+            'paket_royale' => $paket_royale,
+            'paket_sweet_coffee' => $paket_sweet_coffee,
+            'paket_matchamisu' => $paket_matchamisu,
         ], 'sale_input');
         
         // Kirim notifikasi Discord untuk penarikan stok
@@ -327,13 +342,14 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
 }
 
 // Query untuk Ringkasan Input Penjualan (menyeluruh)
-// Karena database sales_data sekarang TERPISAH dari data-masak, kita tidak perlu filter 'log masak' lagi.
 $overall_sales_summary = [
     'paket_western' => 0,       
     'paket_nusantara' => 0,     
     'paket_kids_meal' => 0,     
     'happy_bites' => 0,
-    'paket_royale' => 0,        
+    'paket_royale' => 0,
+    'paket_sweet_coffee' => 0,
+    'paket_matchamisu' => 0,
 ];
 
 $stmt = $conn->prepare("
@@ -342,7 +358,9 @@ $stmt = $conn->prepare("
         SUM(paket_nusantara) as paket_nusantara, 
         SUM(paket_kids) as paket_kids_meal,
         SUM(happy_bites) as happy_bites,
-        SUM(paket_royale) as paket_royale
+        SUM(paket_royale) as paket_royale,
+        SUM(paket_sweet_coffee) as paket_sweet_coffee,
+        SUM(paket_matchamisu) as paket_matchamisu
     FROM sales_data 
     WHERE employee_id = ?
 ");
@@ -359,7 +377,9 @@ $total_overall_sales = ($overall_sales_summary['paket_western'] ?? 0) +
                        ($overall_sales_summary['paket_nusantara'] ?? 0) + 
                        ($overall_sales_summary['paket_kids_meal'] ?? 0) + 
                        ($overall_sales_summary['happy_bites'] ?? 0) +
-                       ($overall_sales_summary['paket_royale'] ?? 0);
+                       ($overall_sales_summary['paket_royale'] ?? 0) +
+                       ($overall_sales_summary['paket_sweet_coffee'] ?? 0) +
+                       ($overall_sales_summary['paket_matchamisu'] ?? 0);
 
 
 $today = date('Y-m-d');
@@ -367,7 +387,8 @@ $today = date('Y-m-d');
 $stmt = $conn->prepare("
     SELECT 
         id, input_time, 
-        paket_western, paket_nusantara, paket_kids, happy_bites, paket_royale
+        paket_western, paket_nusantara, paket_kids, happy_bites, paket_royale, 
+        paket_sweet_coffee, paket_matchamisu
     FROM sales_data 
     WHERE employee_id = ? AND date = ? 
     ORDER BY input_time DESC
@@ -384,6 +405,8 @@ $daily_total = [
     'paket_kids_meal' => 0,
     'happy_bites' => 0,
     'paket_royale' => 0,
+    'paket_sweet_coffee' => 0,
+    'paket_matchamisu' => 0,
     'total_entries' => count($recent_sales)
 ];
 foreach ($recent_sales as $entry) {
@@ -392,6 +415,8 @@ foreach ($recent_sales as $entry) {
     $daily_total['paket_kids_meal'] += $entry['paket_kids']; 
     $daily_total['happy_bites'] += $entry['happy_bites'];
     $daily_total['paket_royale'] += $entry['paket_royale']; 
+    $daily_total['paket_sweet_coffee'] += $entry['paket_sweet_coffee'];
+    $daily_total['paket_matchamisu'] += $entry['paket_matchamisu'];
 }
 
 ?>
@@ -517,6 +542,14 @@ foreach ($recent_sales as $entry) {
                             <span class="stat-label">Paket Royale</span>
                             <span class="stat-value" style="font-size: 1.2em;"><?= $overall_sales_summary['paket_royale'] ?? 0 ?></span>
                         </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Sweet Coffee</span>
+                            <span class="stat-value" style="font-size: 1.2em;"><?= $overall_sales_summary['paket_sweet_coffee'] ?? 0 ?></span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Matcha Misu</span>
+                            <span class="stat-value" style="font-size: 1.2em;"><?= $overall_sales_summary['paket_matchamisu'] ?? 0 ?></span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -617,6 +650,22 @@ foreach ($recent_sales as $entry) {
                                     <input type="number" name="paket_royale" id="paket_royale" value="0" min="0">
                                 </div>
                             </div>
+                            <div class="product-card">
+                                <label for="paket_sweet_coffee">PAKET SWEET COFFEE</label>
+                                <p>(Potong Stok Resto: 1 Paket Sweet Coffee)</p>
+                                <div class="quantity-group">
+                                    <label for="paket_sweet_coffee">Paket</label>
+                                    <input type="number" name="paket_sweet_coffee" id="paket_sweet_coffee" value="0" min="0">
+                                </div>
+                            </div>
+                            <div class="product-card">
+                                <label for="paket_matchamisu">PAKET MATCHA MISU</label>
+                                <p>(Potong Stok Resto: 1 Paket Matcha Misu)</p>
+                                <div class="quantity-group">
+                                    <label for="paket_matchamisu">Paket</label>
+                                    <input type="number" name="paket_matchamisu" id="paket_matchamisu" value="0" min="0">
+                                </div>
+                            </div>
                             
                         </div>
                         
@@ -649,6 +698,8 @@ foreach ($recent_sales as $entry) {
                                         <th>Kids Meal</th>
                                         <th>Happy Bites</th>
                                         <th>Royale</th>
+                                        <th>Sweet Coffee</th>
+                                        <th>Matcha Misu</th>
                                         <th>Aksi</th>
                                     </tr>
                                 </thead>
@@ -671,6 +722,8 @@ foreach ($recent_sales as $entry) {
                                         <td data-label="Kids Meal"><?= $sale['paket_kids'] ?? 0 ?></td>
                                         <td data-label="Happy Bites"><?= $sale['happy_bites'] ?? 0 ?></td>
                                         <td data-label="Royale"><?= $sale['paket_royale'] ?? 0 ?></td>
+                                        <td data-label="Sweet Coffee"><?= $sale['paket_sweet_coffee'] ?? 0 ?></td>
+                                        <td data-label="Matcha Misu"><?= $sale['paket_matchamisu'] ?? 0 ?></td>
                                         <td data-label="Aksi">
                                             <form method="POST" onsubmit="return confirm('Yakin ingin menghapus entri penjualan ini? Aksi ini TIDAK DAPAT DIBATALKAN.')">
                                                 <input type="hidden" name="action" value="delete_sales_entry">
