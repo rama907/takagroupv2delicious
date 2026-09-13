@@ -25,5 +25,5 @@ The project is organized into multiple application components and supporting mod
 ├── scripts/
 ├── styles/
 ├── .htaccess
-├── config.php
+├── config.example.php
 └── index.php
