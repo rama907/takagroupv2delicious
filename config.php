@@ -7,14 +7,14 @@ error_reporting(E_ALL & ~E_NOTICE);
 
 // --- KONSTANTA BARU UNTUK DISCORD BOT API ---
 // GANTI 'MASUKKAN_KUNCI_RAHASIA_ANDA_DISINI' dengan kunci unik (contoh: aBc123XyZ789)
-define('API_SECRET_KEY', '564d5c059a374f249a79e481bbf9df15'); 
+define('API_SECRET_KEY', ''); 
 // -------------------------------------------
 
 // Database configuration
 define('DB_HOST', 'localhost');
-define('DB_USER', 'imjutwnp_delicious');
-define('DB_PASS', 'eRJrpFtGzSAtBupHSfAb');
-define('DB_NAME', 'imjutwnp_delicious');
+define('DB_USER', '');
+define('DB_PASS', '');
+define('DB_NAME', '');
 
 // Create connection
 $conn = new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME);
@@ -190,35 +190,35 @@ function sendDiscordNotification($data, $type = 'info') {
     // --- 1. Konfigurasi Webhook & Bot Khusus ---
     
     // Webhook 1: Pusat Notifikasi (Umum, Clock Event, Admin System Action)
-    $general_webhook_url = 'https://discord.com/api/webhooks/1447150151616692248/rISdem1QO20s8lGx-tQRWwZJKtm6xNbi6J7CPRghFu_-H5RXcS9GqJifc6hoZOAzZ8g7';
+    $general_webhook_url = '';
     $general_bot_name = "Delicious Bot";
 
     // Webhook 2: Permohonan & Surat Menyurat (Leave, Resign, Manual Duty, Booking, dll)
-    $request_webhook_url = 'https://discord.com/api/webhooks/1447150278423089183/DDtsqBYnK86_LUfSlKDoiDxMgmw-9dsPOic4dLUOxavLGmpu9_Zdy50BsqDm2HXnmpDX'; 
+    $request_webhook_url = 'X'; 
     $request_bot_name = "Delicious Request Bot";
 
     // Webhook 3: Stok Kulkas
-    $refrigerator_webhook_url = 'https://discord.com/api/webhooks/1447150486560964669/nKYedvCM5x__MqZcBd_YKzV8vx2ggBsTKJMX7HbQ4Y898O-cxksR7fnPMm5t1xUwI1MI';
+    $refrigerator_webhook_url = '';
     $refrigerator_bot_name = "Delicious Kulkas Bot";
 
     // Webhook 4: Stok Gudang
-    $warehouse_webhook_url = 'https://discord.com/api/webhooks/1447150595298431106/IYbdSNQL_dCTDtcpfrp4pJIuGdQbQkrUfmw4Kw82Qo4-yfpVUeuBKvYsOKZ1FV-pMFvR';
+    $warehouse_webhook_url = '';
     $warehouse_bot_name = "Delicious Gudang Bot";
     
     // Webhook 5: Penjualan
-    $sales_webhook_url = 'https://discord.com/api/webhooks/1447150379480514601/2AY9H6dSIR7rPei-5BLakZAftul6MuH92RCsef4YPHAMuKkTwKQWJFq0QZIp-yr4WsZS'; 
+    $sales_webhook_url = ''; 
     $sales_bot_name = "Delicious Sales Bot";
     
     // Webhook 6: Laporan Rekap Absensi
-    $report_webhook_url = 'https://discord.com/api/webhooks/1447150670494044233/6qsgCEmYegrdMpj2iQCgCJIB7YKlydL8BNb56WFxsfK2mCBsbggjHJ5i23mDRfk2idyp'; 
+    $report_webhook_url = ''; 
     $report_bot_name = "Delicious Report Bot";
 
     // Webhook 7: Rekap Jam Duty
-    $duty_recap_webhook_url = 'https://discord.com/api/webhooks/1447150742308786186/UPFPEaFTgpn9asP9CD7SxIxO5nJSYVWtQMmen6ZnBFxf7pvSO6SXlWVq4NchQtU2Cbu8'; 
+    $duty_recap_webhook_url = ''; 
     $duty_recap_bot_name = "Delicious Duty Recap Bot";
 
     // Webhook 8: Gaji/Payroll
-    $salary_webhook_url = 'https://discord.com/api/webhooks/1447515156199247913/EcPwijRGrqGYijlaXP4Js_CfCdHttklGsPsEAVAHb8PisoPdxBx2mpLkjN30O286PJXO'; 
+    $salary_webhook_url = ''; 
     $salary_bot_name = "Delicious Payroll Bot"; 
     // =====================================
 
